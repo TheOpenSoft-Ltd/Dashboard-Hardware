@@ -1,0 +1,21 @@
+[project]
+name = "pat-smart"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "unixvextor", email = "withun.wch@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "paho-mqtt>=2.1.0",
+    "pymodbus>=3.11.4",
+    "python-dotenv>=1.2.1",
+]
+
+[project.scripts]
+pat-smart = "pat_smart.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
