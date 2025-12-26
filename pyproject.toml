@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pat-smart = "pat_smart.__main__:main"
+pat-smart = "pat_smart.__main__:run"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]

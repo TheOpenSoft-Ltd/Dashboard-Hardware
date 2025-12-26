@@ -1,6 +1,4 @@
-import paho.mqtt.client
+from pat_smart.mqtt import run
 
-def main():
-    print("test test")
 if __name__ == "__main__":
-    main()
+    run()
