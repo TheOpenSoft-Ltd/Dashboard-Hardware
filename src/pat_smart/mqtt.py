@@ -18,10 +18,6 @@ def publish_data(mqttc:mqtt.Client):
             data = {
             "mqtt_name": "ST1",
             "level": 1,
-            "distance": 2.33,
-            "instanceFlowrate": 2.44,
-            "totalFlow": 100,
-            "current": 22,
             "dateTime": str(datetime.now()) 
             }
             mqttc.publish('ST2/value', json.dumps(data), qos=1)
