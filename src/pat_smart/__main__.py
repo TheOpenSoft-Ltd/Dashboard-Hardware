@@ -1,4 +1,4 @@
-from pat_smart.mqtt import run
+from pat_smart.cli.main import run
 
 if __name__ == "__main__":
     run()

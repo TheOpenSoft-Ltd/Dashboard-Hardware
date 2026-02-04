@@ -1,8 +1,14 @@
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
 [project]
 name = "pat-smart"
 version = "0.1.0"
-description = "Add your description here"
+description = "The Pattaya Smart Monitor Tool For MQTT and MODBUS TCP/RS485"
+license = "MIT"
 readme = "README.md"
+keyword = ["mqtt", 'textual', 'pat-smart']
 authors = [
     { name = "unixvextor", email = "withun.wch@gmail.com" }
 ]
@@ -11,11 +17,18 @@ dependencies = [
     "paho-mqtt>=2.1.0",
     "pymodbus>=3.11.4",
     "python-dotenv>=1.2.1",
+    "rich-click>=1.9.7",
+    "typer>=0.21.1",
 ]
 
 [project.scripts]
 pat-smart = "pat_smart.__main__:run"
 
-[build-system]
-requires = ["uv_build>=0.9.18,<0.10.0"]
-build-backend = "uv_build"
+[tool.setuptools.package.find]
+include = [""]
+
+[tool.black]
+line-length=88
+
+[tool.isort]
+profile = "black"
