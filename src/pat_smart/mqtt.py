@@ -26,7 +26,6 @@ def publish_data(mqttc:mqtt.Client):
         except Exception as e:
             raise e
 
-
 def run():
     mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     mqttc.on_connect = on_connect

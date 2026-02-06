@@ -9,6 +9,9 @@ wheels/
 # venv
 .venv
 
+# env
+*.env
+
 # editor
 .vscode/
 .idea/

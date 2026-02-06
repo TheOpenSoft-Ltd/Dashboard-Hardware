@@ -14,6 +14,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "logging>=0.4.9.6",
     "paho-mqtt>=2.1.0",
     "pymodbus>=3.11.4",
     "python-dotenv>=1.2.1",
@@ -25,7 +26,8 @@ dependencies = [
 pat-smart = "pat_smart.__main__:run"
 
 [tool.setuptools.package.find]
-include = [""]
+include = ["/src/pat_smart/*"]
+exclude = ["/tests", "/scripts"]
 
 [tool.black]
 line-length=88

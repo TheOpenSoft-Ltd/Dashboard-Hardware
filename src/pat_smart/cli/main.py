@@ -1,4 +1,5 @@
 from importlib.metadata import version
+from pat_smart.modules.mqtt.client import MQTTClient
 
 import rich_click as click
 
@@ -16,7 +17,6 @@ def _version_option() -> str:
     pat_smart_version = version("pat-smart")
     return f"Pattaya Smart, version {pat_smart_version}"
 
-
 @click.group(
     invoke_without_command=True,
     help="PAT Smart – MQTT Monitor, Sandbox & Forwarder",
@@ -32,7 +32,8 @@ def cli(ctx: click.Context):
     """
     if ctx.invoked_subcommand is None:
         print("Start app")
-
+        mqtt = MQTTClient("localhost", "test1")
+        mqtt.connect()
 
 @cli.command()
 def sandbox():
@@ -42,9 +43,8 @@ def sandbox():
 
 @cli.command()
 def check_connection():
-    """Check MQTT server connectivity"""
+    """Check Netowork/MQTT Connectivity"""
     click.echo("checking connection...")
-
 
 def run() -> None:
     cli()
