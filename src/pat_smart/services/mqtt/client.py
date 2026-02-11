@@ -1,12 +1,14 @@
 import json
-import threading
-import paho.mqtt.client as mqtt
-from typing import Callable
 import socket
+import threading
+from typing import Callable
+
+import paho.mqtt.client as mqtt
+
 
 class MQTTClient:
 
-    def __init__(self, host:str, client_id: str, port:int = 1883):
+    def __init__(self, host: str, client_id: str, port: int = 1883):
         self.host = host
         self.port = port
 
@@ -20,7 +22,7 @@ class MQTTClient:
         self.client.on_disconnect = self._on_disconnect
 
         self._connected = threading.Event()
-    
+
     # --------- Lifecycle--------------
     def connect(self, timeout: int = 5) -> bool:
         try:
@@ -38,11 +40,11 @@ class MQTTClient:
             print(f"[MQTT] unexpected error: {e}")
 
         return False
-    
+
     def disconnect(self):
         self.client.loop_stop()
         self.client.disconnect()
-    
+
     # ---------- subscribe / publish ----------
     def subscribe(self, topic: str, qos: int = 0):
         self.client.subscribe(topic, qos)
@@ -56,11 +58,11 @@ class MQTTClient:
         """
         self._on_message_cb = cb
 
-     # ---------- callbacks ----------
+    # ---------- callbacks ----------
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self._connected.set()
-            print('[MQTT] connected successfully')
+            print("[MQTT] connected successfully")
         else:
             print(f"[MQTT] connect failed: {rc}")
 
@@ -76,4 +78,4 @@ class MQTTClient:
 
         if self._on_message_cb:
             self._on_message_cb(msg.topic, payload)
-        
+

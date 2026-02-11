@@ -1,7 +1,8 @@
 from importlib.metadata import version
-from pat_smart.modules.mqtt.client import MQTTClient
 
 import rich_click as click
+
+from pat_smart.modules.mqtt.client import MQTTClient
 
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.COLOR_SYSTEM = "truecolor"
@@ -16,6 +17,7 @@ click.rich_click.ERRORS_SUGGESTION = "Try 'pat-smart --help' to view available o
 def _version_option() -> str:
     pat_smart_version = version("pat-smart")
     return f"Pattaya Smart, version {pat_smart_version}"
+
 
 @click.group(
     invoke_without_command=True,
@@ -35,6 +37,7 @@ def cli(ctx: click.Context):
         mqtt = MQTTClient("localhost", "test1")
         mqtt.connect()
 
+
 @cli.command()
 def sandbox():
     """Run sandbox data sender"""
@@ -45,6 +48,7 @@ def sandbox():
 def check_connection():
     """Check Netowork/MQTT Connectivity"""
     click.echo("checking connection...")
+
 
 def run() -> None:
     cli()
