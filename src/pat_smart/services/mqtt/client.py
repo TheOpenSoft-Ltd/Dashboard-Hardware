@@ -78,4 +78,3 @@ class MQTTClient:
 
         if self._on_message_cb:
             self._on_message_cb(msg.topic, payload)
-

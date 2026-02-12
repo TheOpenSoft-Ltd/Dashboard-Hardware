@@ -2,8 +2,11 @@ from importlib.metadata import version
 
 import rich_click as click
 
-from pat_smart.modules.mqtt.client import MQTTClient
+from pat_smart.modules.sandbox.runner import SandboxRunner
+from pat_smart.services.mqtt.client import MQTTClient
+from pat_smart.utils.generator import generate_random_sha
 
+# Cofiguration of Textual Framwork
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.COLOR_SYSTEM = "truecolor"
 
@@ -41,7 +44,9 @@ def cli(ctx: click.Context):
 @cli.command()
 def sandbox():
     """Run sandbox data sender"""
-    click.echo("sandbox mode (not implemented yet)")
+    client_id = f"PAT-ST1-{generate_random_sha()}"
+    runner = SandboxRunner("localhost", client_id, "ST1", "พัทยา 6/1")
+    runner.start()
 
 
 @cli.command()
