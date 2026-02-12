@@ -2,5 +2,5 @@ from enum import Enum
 
 
 class SensorType(str, Enum):
-    AECA = "aeca"
+    VEGA = "vega"
     DROPLER = "dropler"

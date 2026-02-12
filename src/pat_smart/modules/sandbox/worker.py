@@ -1,5 +1,6 @@
 import threading
 
+from pat_smart.common.enum import SensorType
 from pat_smart.utils.generator import generate_payload_mockup
 from pat_smart.utils.logger import log_topic, setup_logger
 
@@ -33,21 +34,21 @@ class SandboxWorker:
     def _loop(self):
         while not self._stop_event.is_set():
 
-            topic_aeca = f"sensor/{self.serial}/aeca"
-            topic_dropler = f"sensor/{self.serial}/dropler"
+            topic_vega = f"sensor/{self.serial}/{SensorType}"
+            topic_dropler = f"sensor/{self.serial}/{SensorType}"
 
             # publish same payload or different if needed
-            payload_aeca = generate_payload_mockup(
-                topic_aeca, self.serial, self.station_name
+            payload_vega = generate_payload_mockup(
+                topic_vega, self.serial, self.station_name
             )
             payload_dropler = generate_payload_mockup(
                 topic_dropler, self.serial, self.station_name
             )
 
-            self.mqtt.publish(topic_aeca, payload_aeca)
+            self.mqtt.publish(topic_vega, payload_vega)
             self.mqtt.publish(topic_dropler, payload_dropler)
 
-            log_topic(self.logger, topic_aeca, payload_aeca)
+            log_topic(self.logger, topic_vega, payload_vega)
             log_topic(self.logger, topic_dropler, payload_dropler)
 
             self._stop_event.wait(self.interval)

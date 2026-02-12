@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from hashlib import sha1
 from uuid import uuid4
 
-from pat_smart.conf.enum import SensorType
+from pat_smart.common.enum import SensorType
 
 
 def generate_random_sha():
@@ -18,7 +18,7 @@ def generate_payload_mockup(topic: str, serial: str, station_name: str) -> dict:
         "date_time": str(datetime.now(tz=timezone.utc)),
     }
 
-    if SensorType.AECA in topic:
+    if SensorType.VEGA in topic:
         payload = payload | {
             "level": round(random.uniform(1.0, 4.0), 2),
         }
