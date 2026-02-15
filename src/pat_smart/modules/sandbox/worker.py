@@ -7,11 +7,19 @@ from pat_smart.utils.logger import log_topic, setup_logger
 
 class SandboxWorker:
 
-    def __init__(self, mqtt_client, serial: str, station_name: str, interval: int = 2):
+    def __init__(
+        self,
+        mqtt_client,
+        serial: str,
+        station_name: str,
+        station_id: str,
+        interval: int = 2,
+    ):
         self.mqtt = mqtt_client
         self.serial = serial
         self.interval = interval
         self.station_name = station_name
+        self.station_id = station_id
 
         self._stop_event = threading.Event()
         self._thread = None
@@ -34,15 +42,15 @@ class SandboxWorker:
     def _loop(self):
         while not self._stop_event.is_set():
 
-            topic_vega = f"sensor/{self.serial}/{SensorType}"
-            topic_dropler = f"sensor/{self.serial}/{SensorType}"
+            topic_vega = f"sensor/{self.serial}/{SensorType.VEGA.value}"
+            topic_dropler = f"sensor/{self.serial}/{SensorType.DROPLER.value}"
 
             # publish same payload or different if needed
             payload_vega = generate_payload_mockup(
-                topic_vega, self.serial, self.station_name
+                topic_vega, self.serial, self.station_name, self.station_id
             )
             payload_dropler = generate_payload_mockup(
-                topic_dropler, self.serial, self.station_name
+                topic_dropler, self.serial, self.station_name, self.station_id
             )
 
             self.mqtt.publish(topic_vega, payload_vega)

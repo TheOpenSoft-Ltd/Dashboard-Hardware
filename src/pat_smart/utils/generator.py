@@ -11,10 +11,13 @@ def generate_random_sha():
     return sha1(str(random_uuid).encode()).hexdigest()
 
 
-def generate_payload_mockup(topic: str, serial: str, station_name: str) -> dict:
+def generate_payload_mockup(
+    topic: str, serial: str, station_name: str, station_id: str
+) -> dict:
     payload = {
         "serial": serial,
         "station_name": station_name,
+        "station_id": station_id,
         "date_time": str(datetime.now(tz=timezone.utc)),
     }
 

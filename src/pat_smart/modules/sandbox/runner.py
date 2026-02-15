@@ -4,10 +4,13 @@ from pat_smart.services.mqtt.client import MQTTClient
 
 class SandboxRunner:
 
-    def __init__(self, host: str, client_id: str, serial: str, station_name: str):
+    def __init__(
+        self, host: str, client_id: str, serial: str, station_name: str, station_id: str
+    ):
         self.mqtt = MQTTClient(host, client_id)
         self.serial = serial
         self.station_name = station_name
+        self.station_id = station_id
         self.worker: SandboxWorker | None = None
 
     def start(self):
@@ -16,7 +19,10 @@ class SandboxRunner:
             raise RuntimeError("MQTT connection failed")
 
         self.worker = SandboxWorker(
-            mqtt_client=self.mqtt, serial=self.serial, station_name=self.station_name
+            mqtt_client=self.mqtt,
+            serial=self.serial,
+            station_name=self.station_name,
+            station_id=self.station_id,
         )
         self.worker.start()
         self.worker._loop()
