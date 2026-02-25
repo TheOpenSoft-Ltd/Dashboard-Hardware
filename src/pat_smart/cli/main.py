@@ -46,7 +46,9 @@ def sandbox():
     """Run sandbox data sender"""
     client_id = f"PAT-ST1-{generate_random_sha()}"
     station_id = "701673d6-b663-45a1-ab84-79d7743eb659"
-    runner = SandboxRunner("localhost", client_id, "ST1", "พัทยา 6/1", station_id)
+    runner = SandboxRunner(
+        "localhost", client_id, "PAT-E333EE", "พัทยา 6/1", station_id
+    )
     runner.start()
 
 

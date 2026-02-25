@@ -12,10 +12,10 @@ def generate_random_sha():
 
 
 def generate_payload_mockup(
-    topic: str, serial: str, station_name: str, station_id: str
+    topic: str, deviceId: str, station_name: str, station_id: str
 ) -> dict:
     payload = {
-        "serial": serial,
+        "deviceId": deviceId,
         "station_name": station_name,
         "station_id": station_id,
         "date_time": str(datetime.now(tz=timezone.utc)),
