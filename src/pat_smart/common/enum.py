@@ -2,5 +2,10 @@ from enum import Enum
 
 
 class SensorType(str, Enum):
-    VEGA = "vega"
     DROPLER = "dropler"
+    RADAR = "radar"
+
+
+class SensorStatusType(str, Enum):
+    ONLINE = "online"
+    OFFLINE = "offline"

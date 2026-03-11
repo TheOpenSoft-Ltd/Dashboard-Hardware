@@ -42,21 +42,21 @@ class SandboxWorker:
     def _loop(self):
         while not self._stop_event.is_set():
 
-            topic_vega = f"sensor/{self.deviceId}/{SensorType.VEGA.value}"
+            topic_radar = f"sensor/{self.deviceId}/{SensorType.RADAR.value}"
             topic_dropler = f"sensor/{self.deviceId}/{SensorType.DROPLER.value}"
 
             # publish same payload or different if needed
             payload_vega = generate_payload_mockup(
-                topic_vega, self.deviceId, self.station_name, self.station_id
+                topic_radar, self.deviceId, self.station_name, self.station_id
             )
             payload_dropler = generate_payload_mockup(
                 topic_dropler, self.deviceId, self.station_name, self.station_id
             )
 
-            self.mqtt.publish(topic_vega, payload_vega)
+            self.mqtt.publish(topic_radar, payload_vega)
             self.mqtt.publish(topic_dropler, payload_dropler)
 
-            log_topic(self.logger, topic_vega, payload_vega)
+            log_topic(self.logger, topic_radar, payload_vega)
             log_topic(self.logger, topic_dropler, payload_dropler)
 
             self._stop_event.wait(self.interval)

@@ -12,6 +12,9 @@ wheels/
 # env
 *.env
 
+# certs folder
+certs/
+
 # editor
 .vscode/
 .idea/

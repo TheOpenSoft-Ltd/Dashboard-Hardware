@@ -15,13 +15,13 @@ def generate_payload_mockup(
     topic: str, deviceId: str, station_name: str, station_id: str
 ) -> dict:
     payload = {
-        "deviceId": deviceId,
+        "device_id": deviceId,
         "station_name": station_name,
         "station_id": station_id,
         "date_time": str(datetime.now(tz=timezone.utc)),
     }
 
-    if SensorType.VEGA in topic:
+    if SensorType.RADAR in topic:
         payload = payload | {
             "level": round(random.uniform(1.0, 4.0), 2),
         }

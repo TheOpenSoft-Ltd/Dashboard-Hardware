@@ -1,21 +1,19 @@
+from pat_smart.config import Settings
 from pat_smart.modules.sandbox.worker import SandboxWorker
 from pat_smart.services.mqtt.client import MQTTClient
+
+settings = Settings()  # type: ignore
 
 
 class SandboxRunner:
 
     def __init__(
         self,
-        host: str,
-        client_id: str,
-        deviceId: str,
-        station_name: str,
-        station_id: str,
     ):
-        self.mqtt = MQTTClient(host, client_id)
-        self.deviceId = deviceId
-        self.station_name = station_name
-        self.station_id = station_id
+        self.mqtt = MQTTClient()
+        self.deviceId = settings.DEVICE_ID
+        self.station_name = settings.STATION_NAME
+        self.station_id = settings.STATION_ID
         self.worker: SandboxWorker | None = None
 
     def start(self):

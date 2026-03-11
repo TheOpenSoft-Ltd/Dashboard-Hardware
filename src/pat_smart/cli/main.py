@@ -1,10 +1,21 @@
 from importlib.metadata import version
 
 import rich_click as click
+from pydantic import ValidationError
 
+from pat_smart.app import ClockApp
+from pat_smart.config import Settings
 from pat_smart.modules.sandbox.runner import SandboxRunner
 from pat_smart.services.mqtt.client import MQTTClient
-from pat_smart.utils.generator import generate_random_sha
+
+# Load evironmen variable
+try:
+    config = Settings()  # type: ignore
+except ValidationError as e:
+    print("Evironment configuration error: ")
+    print(e)
+    exit(1)
+
 
 # Cofiguration of Textual Framwork
 click.rich_click.USE_RICH_MARKUP = True
@@ -36,19 +47,18 @@ def cli(ctx: click.Context):
     Run the CLI application.
     """
     if ctx.invoked_subcommand is None:
-        print("Start app")
-        mqtt = MQTTClient("localhost", "test1")
-        mqtt.connect()
+        # print("Start app")
+        app = ClockApp()
+        app.run()
+
+        # mqtt = MQTTClient("localhost", "test1")
+        # mqtt.connect()
 
 
 @cli.command()
 def sandbox():
     """Run sandbox data sender"""
-    client_id = f"PAT-ST1-{generate_random_sha()}"
-    station_id = "701673d6-b663-45a1-ab84-79d7743eb659"
-    runner = SandboxRunner(
-        "localhost", client_id, "PAT-E333EE", "พัทยา 6/1", station_id
-    )
+    runner = SandboxRunner()
     runner.start()
 
 
