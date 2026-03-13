@@ -44,6 +44,7 @@ class MQTTClient:
             topic=self.status_topic,
             payload=json.dumps(
                 {
+                    "deviceId": settings.DEVICE_ID,
                     "status": SensorStatusType.OFFLINE,
                 },
             ),
@@ -89,6 +90,7 @@ class MQTTClient:
         self.publish(
             self.status_topic,
             {
+                "deviceId": settings.DEVICE_ID,
                 "status": SensorStatusType.OFFLINE,
                 "lastseen": str(datetime.now(tz=timezone.utc)),
             },
@@ -118,6 +120,7 @@ class MQTTClient:
                 self.publish(
                     self.status_topic,
                     {
+                        "deviceId": settings.DEVICE_ID,
                         "status": SensorStatusType.ONLINE,
                         "lastseen": str(datetime.now(tz=timezone.utc)),
                     },
@@ -146,6 +149,7 @@ class MQTTClient:
             self.publish(
                 self.status_topic,
                 {
+                    "deviceId": settings.DEVICE_ID,
                     "status": SensorStatusType.ONLINE,
                     "lastseen": str(datetime.now(tz=timezone.utc)),
                 },
