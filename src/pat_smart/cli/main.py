@@ -3,10 +3,9 @@ from importlib.metadata import version
 import rich_click as click
 from pydantic import ValidationError
 
-from pat_smart.app import ClockApp
+from pat_smart.app import MainScreen
 from pat_smart.config import Settings
 from pat_smart.modules.sandbox.runner import SandboxRunner
-from pat_smart.services.mqtt.client import MQTTClient
 
 # Load evironmen variable
 try:
@@ -47,12 +46,8 @@ def cli(ctx: click.Context):
     Run the CLI application.
     """
     if ctx.invoked_subcommand is None:
-        # print("Start app")
-        app = ClockApp()
+        app = MainScreen()
         app.run()
-
-        # mqtt = MQTTClient("localhost", "test1")
-        # mqtt.connect()
 
 
 @cli.command()

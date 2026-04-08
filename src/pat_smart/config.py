@@ -11,3 +11,7 @@ class Settings(BaseSettings):
     DEVICE_ID: str
     STATION_ID: str
     STATION_NAME: str
+    STATION_LOCATION: str
+    STATION_LATITUDE: float
+    STATION_LONGITUDE: float
+    MODE: str = "DROPLER" or "LADAR" or "FULL"

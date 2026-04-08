@@ -1,16 +1,29 @@
 from datetime import datetime
 
 from textual.app import App, ComposeResult
-from textual.widgets import Digits
+from textual.containers import Horizontal
+from textual.widgets import Digits, Header
 
 
-class ClockApp(App):
+class AppHeader(Horizontal):
+
+    def compose(self) -> ComposeResult:
+        return super().compose()
+
+
+class AppBody(Horizontal):
+    def compose(self) -> ComposeResult:
+        return super().compose()
+
+
+class MainScreen(App):
     CSS = """
     Screen {align: center middle; }
     Digits {width: auto}
     """
 
     def compose(self) -> ComposeResult:
+        yield Header()
         yield Digits("")
 
     def on_ready(self) -> None:
