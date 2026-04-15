@@ -1,0 +1,45 @@
+Screen {
+  padding: 1;
+}
+
+AppHeader {
+  height: 20%;
+  margin: 0;
+}
+
+AppBody {
+  height: 80%;
+  margin: 0;
+}
+
+LogoApp {
+  width: 45%;
+  align: center middle;
+}
+
+DataSensor {
+  width: 20%;
+  border: round cyan;
+  padding: 2;
+  text-align: center;
+}
+
+DataLog Input {
+  border: heavy purple;
+  background: transparent;
+}
+
+DataLog .log-list {
+  border: round cyan;
+  background: transparent;
+  padding: 0 1;
+  width: 70%;
+}
+
+DataLog .log-detail {
+  width: 30%;
+  height: 100%;
+  padding: 1 2 1 2;
+  border: solid cyan;
+}
+
