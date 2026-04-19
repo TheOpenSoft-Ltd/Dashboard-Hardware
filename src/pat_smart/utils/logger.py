@@ -52,16 +52,7 @@ def setup_logger(name: str = "sandbox") -> logging.Logger:
     return logger
 
 
-def save_log_to_file(log_dir: Path, topic: str, payload: dict):
-    log_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{timestamp}_{topic.replace('/', '_')}.json"
-    filepath = log_dir / filename
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-
-
-def log_topic(logger, topic: str, payload: dict, log_dir: Path | None = None):
+def log_topic(logger, topic: str, payload: dict):
     payload_json = json.dumps(
         payload,
         separators=(",", ":"),
@@ -74,6 +65,3 @@ def log_topic(logger, topic: str, payload: dict, log_dir: Path | None = None):
         f"[magenta]PAYLOAD[/magenta] | "
         f"[green]{payload_json}[/green]"
     )
-
-    if log_dir:
-        save_log_to_file(log_dir, topic, payload)

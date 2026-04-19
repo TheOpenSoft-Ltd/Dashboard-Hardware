@@ -15,3 +15,5 @@ class Settings(BaseSettings):
     STATION_ID: str
     STATION_NAME: str
     MODE: str = "DROPLER" or "LADAR" or "FULL"
+    LOG_DIR: str = "logs"
+    LOG_FILE_PREFIX: str = "sensor_log"

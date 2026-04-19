@@ -2,6 +2,7 @@ import threading
 from pathlib import Path
 
 from pat_smart.common.enum import SensorType
+from pat_smart.services.file.file import FileService
 from pat_smart.utils.generator import generate_payload_mockup
 from pat_smart.utils.logger import log_topic, setup_logger
 
@@ -14,19 +15,18 @@ class SandboxWorker:
         station_name: str,
         station_id: str,
         interval: int = 2,
-        log_dir: Path | None = None,
     ):
         self.mqtt = mqtt_client
         self.deviceId = deviceId
         self.interval = interval
         self.station_name = station_name
         self.station_id = station_id
-        self.log_dir = log_dir
 
         self._stop_event = threading.Event()
         self._thread = None
 
         self.logger = setup_logger("SANDBOX")
+        self.file_service = FileService()
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -57,7 +57,10 @@ class SandboxWorker:
             self.mqtt.publish(topic_radar, payload_vega)
             self.mqtt.publish(topic_dropler, payload_dropler)
 
-            log_topic(self.logger, topic_radar, payload_vega, self.log_dir)
-            log_topic(self.logger, topic_dropler, payload_dropler, self.log_dir)
+            log_topic(self.logger, topic_radar, payload_vega)
+            log_topic(self.logger, topic_dropler, payload_dropler)
+
+            self.file_service.save_log(payload_vega, topic_radar)
+            self.file_service.save_log(payload_dropler, topic_dropler)
 
             self._stop_event.wait(self.interval)

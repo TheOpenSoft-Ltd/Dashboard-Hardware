@@ -1,3 +1,5 @@
+import json
+
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -7,6 +9,8 @@ from textual.message import Message
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.widgets import Input
+
+from pat_smart.services.file.file import FileService
 
 
 class LogListSelected(Message):
@@ -22,6 +26,8 @@ class LogList(ScrollView):
         Binding("enter", "confirm_select", "Select", show=False),
         Binding("left,h", "scroll_left", "Scroll Left", show=False),
         Binding("right,l", "scroll_right", "Scroll Right", show=False),
+        Binding("g", "move_top", "Top", show=False),
+        Binding("G", "move_bottom", "Bottom", show=False),
     ]
 
     def __init__(self) -> None:
@@ -57,7 +63,9 @@ class LogList(ScrollView):
 
         text_obj = Text.from_markup(text)
         if index == self._selected_index:
-            text_obj.style = Style(bgcolor="cyan", bold=True)
+            text_obj.style = Style(bgcolor="#606060", bold=True)
+        else:
+            text_obj.style = Style(bgcolor="#262626")
         strip = Strip(text_obj.render(self.app.console), text_obj.cell_len)
         strip = strip.crop_extend(scroll_x, scroll_x + width, None)
         return strip
@@ -81,6 +89,18 @@ class LogList(ScrollView):
         if self._selected_index is not None:
             self.post_message(LogListSelected(self._selected_index))
 
+    def action_move_top(self) -> None:
+        if self._logs:
+            self._selected_index = 0
+            self.scroll_to(y=0, animate=False)
+            self.refresh()
+
+    def action_move_bottom(self) -> None:
+        if self._logs:
+            self._selected_index = len(self._logs) - 1
+            self.scroll_to(y=self._selected_index, animate=False)
+            self.refresh()
+
     def _get_level_color(self, level: str) -> str:
         colors = {"INFO": "green", "WARNING": "yellow", "ERROR": "red"}
         return colors.get(level, "white")
@@ -96,6 +116,12 @@ class LogList(ScrollView):
 
 
 class DataLog(Vertical):
+    BINDINGS = [
+        Binding("r", "reload", "Reload", show=True),
+    ]
+
+    REFRESH_INTERVAL = 1
+
     def __init__(self, group: str = "Logs") -> None:
         super().__init__()
         self.group = group
@@ -109,61 +135,45 @@ class DataLog(Vertical):
     def on_mount(self) -> None:
         log_list = self.query_one(LogList)
         log_list.border_title = self.group
-        self._add_sample_logs()
+        self._load_logs()
+        self.set_timer(self.REFRESH_INTERVAL, self._auto_reload)
 
-    def _add_sample_logs(self) -> None:
-        self._logs = [
-            (
-                "10:00:00",
-                "INFO",
-                '{"event": "system_start", "status": "ok", "uptime": "24h"}',
-            ),
-            (
-                "10:01:00",
-                "WARNING",
-                '{"cpu": 85, "core": 0, "alert": true}',
-            ),
-            (
-                "10:02:00",
-                "ERROR",
-                '{"mqtt": "timeout", "duration": 30, "broker": "localhost"}',
-            ),
-            (
-                "10:03:00",
-                "INFO",
-                '{"reconnect": true, "broker": "tcp://localhost:1883", "attempt": 3}',
-            ),
-            (
-                "10:04:00",
-                "WARNING",
-                '{"memory": 78, "threshold": 80}',
-            ),
-            (
-                "10:05:00",
-                "ERROR",
-                '{"modbus": "error", "register": "0x0001", "slave": 1}',
-            ),
-            (
-                "10:06:00",
-                "INFO",
-                '{"sensor": "PS-001", "temperature": 23.5, "humidity": 65}',
-            ),
-            (
-                "10:07:00",
-                "INFO",
-                '{"maintenance": "scheduled", "time": "14:00", "date": "tomorrow"}',
-            ),
-            (
-                "10:08:00",
-                "WARNING",
-                '{"latency": 250, "network": "congested"}',
-            ),
-            (
-                "10:09:00",
-                "ERROR",
-                '{"db": "pool_exhausted", "connections": 10}',
-            ),
-        ]
+    def _auto_reload(self) -> None:
+        self._load_logs()
+        self.set_timer(self.REFRESH_INTERVAL, self._auto_reload)
+
+    def action_reload(self) -> None:
+        self._load_logs()
+
+    def _load_logs(self) -> None:
+        file_service = FileService()
+        logs = file_service.read_logs(days=7)
+        self._logs = []
+        for log in logs:
+            timestamp = log.get("_timestamp") or log.get("date_time", "")
+            time_str = ""
+            if timestamp:
+                try:
+                    from datetime import datetime, timedelta, timezone
+
+                    ts = timestamp.replace("Z", "+00:00")
+                    if "T" in timestamp:
+                        dt = datetime.fromisoformat(ts.replace(" ", "T"))
+                        utc_dt = dt.replace(tzinfo=timezone.utc)
+                        ict_offset = timedelta(hours=7)
+                        ict_dt = utc_dt.astimezone(timezone(ict_offset))
+                        time_str = ict_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        time_str = timestamp[:19] if len(timestamp) >= 19 else timestamp
+                except Exception:
+                    time_str = timestamp[:19] if len(timestamp) >= 19 else timestamp
+            level = "INFO"
+            raw_log = json.dumps(log)
+            self._logs.append((time_str, level, raw_log))
+        if not self._logs:
+            self._logs = [
+                ("--:--:--", "INFO", "No logs found"),
+            ]
         self._render_logs(self._logs)
 
     def _render_logs(self, logs: list[tuple[str, str, str]]) -> None:
@@ -181,10 +191,3 @@ class DataLog(Vertical):
                 if query in m.lower() or query in l.lower()
             ]
             self._render_logs(filtered)
-
-    def on_log_list_selected(self, event: LogListSelected) -> None:
-        log_list = self.query_one(LogList)
-        if 0 <= event.index < len(self._logs):
-            log_list.add_class("selected")
-        else:
-            log_list.remove_class("selected")

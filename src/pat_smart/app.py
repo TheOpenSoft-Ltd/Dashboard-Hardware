@@ -23,7 +23,7 @@ class AppBody(HorizontalGroup):
 
 class MainScreen(App):
     CSS_PATH = "style.css"
-    BINDINGS = [("q", "exit_app", "Exit"), ("s", "save", "Save")]
+    BINDINGS = [("q", "exit_app", "Exit")]
 
     def compose(self) -> ComposeResult:
         yield AppHeader()
