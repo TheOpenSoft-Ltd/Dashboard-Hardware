@@ -19,27 +19,64 @@ LogoApp {
 
 DataSensor {
   width: 20%;
+}
+
+DataSensor StatusGroup {
+  width: 100%;
   border: round cyan;
-  padding: 2;
-  text-align: center;
+  padding: 1;
 }
 
-DataLog Input {
-  border: heavy purple;
-  background: transparent;
-}
-
-DataLog .log-list {
+DataSensor RadarGroup {
+  width: 100%;
   border: round cyan;
-  background: transparent;
-  padding: 0 1;
-  width: 70%;
+  padding: 1;
 }
 
-DataLog .log-detail {
-  width: 30%;
+DataSensor DroplerGroup {
+  width: 100%;
+  border: round cyan;
+  padding: 1;
+}
+
+DataLog {
+  width: 80%;
+}
+
+DataLog > Horizontal {
+  height: 1fr;
+}
+
+DataLog LogList {
+  border: round gray;
+  width: 100%;
   height: 100%;
-  padding: 1 2 1 2;
-  border: solid cyan;
+  background: transparent;
+  overflow-x: scroll;
 }
 
+DataLog LogList:focus {
+  border: round cyan;
+}
+
+DataLog LogList.selected {
+  width: 60%;
+}
+
+DataLog LogDetail {
+  width: 0%;
+  height: 100%;
+  background: transparent;
+  padding: 1 2 1 2;
+  border: round gray;
+  display: none;
+}
+
+DataLog LogDetail:focus {
+  border: round cyan;
+}
+
+DataLog LogDetail.selected {
+  width: 40%;
+  display: block;
+}

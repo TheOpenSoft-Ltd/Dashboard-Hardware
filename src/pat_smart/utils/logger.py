@@ -1,7 +1,9 @@
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from rich.console import Console
@@ -9,7 +11,6 @@ from rich.logging import RichHandler
 
 
 class TopicFormatter(logging.Formatter):
-
     def formatTime(self, record, datefmt=None):
         dt_utc = datetime.fromtimestamp(record.created, tz=timezone.utc)
         dt_bkk = dt_utc.astimezone(ZoneInfo("Asia/Bangkok"))
@@ -51,9 +52,20 @@ def setup_logger(name: str = "sandbox") -> logging.Logger:
     return logger
 
 
-def log_topic(logger, topic: str, payload: dict):
+def save_log_to_file(log_dir: Path, topic: str, payload: dict):
+    log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{timestamp}_{topic.replace('/', '_')}.json"
+    filepath = log_dir / filename
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def log_topic(logger, topic: str, payload: dict, log_dir: Path | None = None):
     payload_json = json.dumps(
-        payload, separators=(",", ":"), ensure_ascii=False  # 🔥 important for UTF-8
+        payload,
+        separators=(",", ":"),
+        ensure_ascii=False,  # 🔥 important for UTF-8
     )
 
     logger.info(
@@ -62,3 +74,6 @@ def log_topic(logger, topic: str, payload: dict):
         f"[magenta]PAYLOAD[/magenta] | "
         f"[green]{payload_json}[/green]"
     )
+
+    if log_dir:
+        save_log_to_file(log_dir, topic, payload)

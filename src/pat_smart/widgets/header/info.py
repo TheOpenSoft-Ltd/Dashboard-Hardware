@@ -19,13 +19,11 @@ class SensorInfo(Vertical):
         self._disk_label = Label()
 
     def compose(self) -> ComposeResult:
-        yield Label(f"[b]Pat Smart Version:[/b] [yellow]{version}[/yellow]")
-        yield Label(
-            f"[b]Station:[/b]           [yellow]{setting.STATION_NAME}[/yellow]"
-        )
-        yield Label(f"[b]Device ID:[/b]         [yellow]{setting.DEVICE_ID}[/yellow]")
-        yield Label(f"[b]Mode:[/b]              [yellow]{setting.MODE}[/yellow]")
-        yield Label(f"[b]Cloud:[/b]             [green]Online 🟢[/green]")
+        yield Label(f"[yellow]Pat Smart Version:[/yellow] {version}")
+        yield Label(f"[yellow]Station:[/yellow]           {setting.STATION_NAME}")
+        yield Label(f"[yellow]Device ID:[/yellow]         {setting.DEVICE_ID}")
+        yield Label(f"[yellow]Mode:[/yellow]              {setting.MODE}")
+        yield Label(f"[yellow]Cloud:[/yellow]             [green]Online 🟢[/green]")
         yield self._cpu_label
         yield self._mem_label
         yield self._disk_label
@@ -39,6 +37,6 @@ class SensorInfo(Vertical):
         mem = psutil.virtual_memory().percent
         disk = psutil.disk_usage("/").percent
 
-        self._cpu_label.update(f"[b]CPU:[/b]               [yellow]{cpu}%[/yellow]")
-        self._mem_label.update(f"[b]MEM:[/b]               [yellow]{mem}%[/yellow]")
-        self._disk_label.update(f"[b]DISK:[/b]              [yellow]{disk}%[/yellow]")
+        self._cpu_label.update(f"[yellow]CPU:[/yellow]               {cpu} %")
+        self._mem_label.update(f"[yellow]MEM:[/yellow]               {mem} %")
+        self._disk_label.update(f"[yellow]DISK:[/yellow]              {disk} %")

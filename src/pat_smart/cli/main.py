@@ -15,7 +15,6 @@ except ValidationError as e:
     print(e)
     exit(1)
 
-
 # Cofiguration of Textual Framwork
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.COLOR_SYSTEM = "truecolor"
