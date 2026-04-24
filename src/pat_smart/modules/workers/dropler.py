@@ -1,95 +1,158 @@
-# AWSIOT Library
 import datetime
-
-# import other Library
 import json
+import logging
 import os
+import ssl
+import sys
 import time
+from pathlib import Path
 
-from awscrt import mqtt5
-from awsiot import mqtt5_client_builder
+import paho.mqtt.client as mqtt
 from dotenv import load_dotenv
-from pymodbus.client import ModbusTcpClient
-from pymodbus.constants import Endian
-from pymodbus.payload import BinaryPayloadDecoder
+from pymodbus.client import ModbusSerialClient
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.theme import Theme
 
-# Load the stored environment variable
 load_dotenv()
 
-# MQTT Setting
-CLIENT_ID = os.getenv("CLIENTID")
-ENDPOINT = os.getenv("ENDPOINT")
-TOPIC = "{}/value".format(CLIENT_ID)
-CERTIFICATE = "../cert/certificate.pem.crt"
-PRIVATE_KEY = "../cert/private.pem.key"
-AMAZON_ROOT_CA_1 = "../cert/RootCA1.pem"
+CLIENT_ID = os.getenv("CLIENTID", "")
+STATION_NAME = os.getenv("STATION_NAME", "")
+STATION_ID = os.getenv("STATION_ID", "")
+MQTT_HOST = os.getenv("MQTT_HOST", "")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_CERT = os.getenv("MQTT_CERT", "")
+MQTT_PRIVATE_KEY = os.getenv("MQTT_PRIVATE_KEY", "")
+MQTT_CA = os.getenv("MQTT_CA", "")
+TOPIC = f"{CLIENT_ID}/value"
 
-# Modbus RTU setting
-PORT = os.getenv("USBPORT")
-HOST = os.getenv("HOST")
-SLAVEID = 1
+HOST = os.getenv("HOST", "")
+SLAVE_ID = 1
+PORT = os.getenv("USBPORT", "")
+TIME = int(os.getenv("TIME", "10"))
 
-TIME = int(os.getenv("TIME"))
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+LOG_FILE = LOG_DIR / "radar.log"
+
+custom_theme = Theme(
+    {"cyan": "cyan", "yellow": "yellow", "magenta": "magenta", "green": "green"}
+)
+console = Console(theme=custom_theme, file=sys.__stdout__, force_terminal=True)
+
+
+class RichFileHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            plain_msg = (
+                msg.replace("[cyan]", "")
+                .replace("[/cyan]", "")
+                .replace("[yellow]", "")
+                .replace("[/yellow]", "")
+                .replace("[magenta]", "")
+                .replace("[/magenta]", "")
+                .replace("[green]", "")
+                .replace("[/green]", "")
+            )
+            with open(LOG_FILE, "a") as f:
+                f.write(plain_msg + "\n")
+        except Exception:
+            self.handleError(record)
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    handlers=[
+        RichFileHandler(),
+        RichHandler(
+            console=console,
+            show_time=False,
+            show_level=True,
+            show_path=False,
+            markup=True,
+            rich_tracebacks=True,
+        ),
+    ],
+)
+logger = logging.getLogger(__name__)
+
 errorcounter = 0
 
-# Setup MQTT
-mqtt = mqtt5_client_builder.mtls_from_path(
-    endpoint=ENDPOINT,
-    port=8883,
-    cert_filepath=CERTIFICATE,
-    pri_key_filepath=PRIVATE_KEY,
-    ca_filepath=AMAZON_ROOT_CA_1,
-    http_proxy_options=None,
-    client_id=CLIENT_ID,
+mqtt_client = mqtt.Client(client_id=f"{CLIENT_ID}-radar")
+mqtt_client.tls_set(
+    MQTT_CA, MQTT_CERT, MQTT_PRIVATE_KEY, tls_version=ssl.PROTOCOL_TLS_CLIENT
+)
+mqtt_client.tls_insecure_set(True)
+
+logger.info("MQTT Client Created")
+mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
+mqtt_client.loop_start()
+
+client = ModbusSerialClient(
+    port=PORT,
+    baudrate=9600,
+    stopbits=1,
+    bytesize=8,
+    parity="N",
+    timeout=1,
 )
 
-print("MQTT Client Created")
-mqtt.start()
+connection = client.connect()
+if connection:
+    logger.info("Connected.")
+else:
+    logger.error("Connection failed.")
+    exit()
 
-# Setup Modbus RTU
-client = ModbusTcpClient(HOST, port=502)
+logger.info("Modbus Client Ready")
+
+
+def read_float(address):
+    resp = client.read_holding_registers(address, count=2, device_id=SLAVE_ID)
+    return ModbusSerialClient.convert_from_registers(
+        registers=resp.registers,
+        data_type=ModbusSerialClient.DATATYPE.FLOAT32,
+        word_order="big",
+    )
+
 
 while True:
     try:
-        response_flowrate = client.read_holding_registers(31001, 2, SLAVEID)
-        response_level = client.read_holding_registers(31005, 2, SLAVEID)
-        response_totalize = client.read_holding_registers(31009, 2, SLAVEID)
-        level = BinaryPayloadDecoder.fromRegisters(
-            response_level.registers, byteorder=Endian.BIG, wordorder=Endian.LITTLE
-        ).decode_32bit_float()
-        distance = 0
-        instan_flow = BinaryPayloadDecoder.fromRegisters(
-            response_flowrate.registers, byteorder=Endian.BIG, wordorder=Endian.LITTLE
-        ).decode_32bit_float()
-        total_flow = BinaryPayloadDecoder.fromRegisters(
-            response_totalize.registers, byteorder=Endian.BIG, wordorder=Endian.LITTLE
-        ).decode_32bit_float()
-        current = 0
-        dateTime = str(datetime.datetime.now())
+        velocity = read_float(2)
+        flowrate = read_float(3)
+        temp = read_float(4)
+        cumulative_flow = read_float(8)
+
+        dateTime = str(datetime.datetime.now(datetime.timezone.utc))
+
         data = {
-            "mqtt_name": CLIENT_ID,
-            "level": float("{0:.3f}".format(level)),
-            "distance": float("{0:.3f}".format(distance)),
-            "instanceFlowrate": float("{0:.3f}".format(instan_flow)),
-            "totalFlow": float("{0:.3f}".format(total_flow)),
-            "current": float("{0:.3f}".format(current)),
-            "dateTime": dateTime,
+            "device_id": CLIENT_ID,
+            "station_name": STATION_NAME,
+            "station_id": STATION_ID,
+            "date_time": dateTime,
+            "velocity": float(f"{velocity:.6f}"),
+            "flowrate": float(f"{flowrate:.6f}"),
+            "cumulative_flow": float(f"{cumulative_flow:.2f}"),
+            "temperature": float(f"{temp:.3f}"),
         }
-        mqtt.publish(
-            mqtt5.PublishPacket(
-                topic=TOPIC, payload=json.dumps(data), qos=mqtt5.QoS.AT_LEAST_ONCE
-            )
+
+        mqtt_client.publish(TOPIC, json.dumps(data), qos=1)
+
+        payload_json = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+        logger.info(
+            f"[cyan]TOPIC[/cyan] | "
+            f"[yellow]{TOPIC}[/yellow] | "
+            f"[magenta]PAYLOAD[/magenta] | "
+            f"[green]{payload_json}[/green]"
         )
-        print("level : {} m".format(level))
-        print("distance : {} m".format(distance))
-        print("instance flowrate : {} m3/h".format(instan_flow))
-        print("total flowrate : {} m3".format(total_flow))
-        print("current {} mA".format(current))
-        print("dateTime {}".format(dateTime))
-        print("error count: ", errorcounter)
-        print()
+
         time.sleep(TIME)
+
     except Exception as error:
-        print("[!] Exception occured: ", error)
-        errorcounter = errorcounter + 1
-    time.sleep(TIME)
+        logger.error(f"Exception occurred: {error}")
+        errorcounter += 1
+        time.sleep(TIME)

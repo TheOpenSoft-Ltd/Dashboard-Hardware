@@ -6,14 +6,16 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
     ENV: str = "development"
-    MQTT_HOST: str
+    MQTT_HOST: str = "localhost"
     MQTT_PORT: int = 1883
-    MQTT_CERT: str
-    MQTT_PRIVATE_KEY: str
-    MQTT_CA: str
-    DEVICE_ID: str
-    STATION_ID: str
-    STATION_NAME: str
+    MQTT_CERT: str = "s"
+    MQTT_PRIVATE_KEY: str = "s"
+    MQTT_CA: str = "s"
+    DEVICE_ID: str = "s"
+    STATION_ID: str = "s"
+    STATION_NAME: str = "s"
     MODE: str = "DROPLER" or "LADAR" or "FULL"
     LOG_DIR: str = "logs"
     LOG_FILE_PREFIX: str = "sensor_log"
+    MODBUS_HOST: str = "localhost"
+    MODBUS_PORT: int = 502
