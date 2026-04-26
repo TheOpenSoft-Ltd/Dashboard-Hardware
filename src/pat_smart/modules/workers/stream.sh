@@ -10,8 +10,8 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-RTSP_URL="${RTSP_URL}"
-RTMP_URL="${RTMP_URL}"
+RTSP_URL="rtsp://admin:smart2019@192.168.1.103:554/stream0"
+RTMP_URL="rtmp://192.168.1.101/CCTVApp/CCTV-2C9F9E1F90627"
 VIDEO_ENCODER="${VIDEO_ENCODER:-libx264}"
 FPS="${FPS:-30}"
 BITRATE="${BITRATE:-2000k}"

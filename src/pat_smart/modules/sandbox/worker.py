@@ -1,5 +1,4 @@
 import threading
-from pathlib import Path
 
 from pat_smart.common.enum import SensorType
 from pat_smart.services.file.file import FileService
