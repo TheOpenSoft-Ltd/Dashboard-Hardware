@@ -9,12 +9,21 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import paho.mqtt.client as mqtt
+import redis
 from dotenv import load_dotenv
 from pymodbus.client import ModbusSerialClient
 
 load_dotenv()
 
 THAILAND_TZ = ZoneInfo("Asia/Bangkok")
+
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_CHANNEL = os.getenv("REDIS_DROPLER_CHANNEL", "dropler-data")
+
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+redis_client.ping()
+print(f"[Redis] Connected to {REDIS_HOST}:{REDIS_PORT}")
 
 
 def generate_random_sha():
@@ -202,7 +211,8 @@ while True:
         }
         print(data)
 
-        # mqtt_client.publish(TOPIC, json.dumps(data), qos=1)
+        mqtt_client.publish(TOPIC, json.dumps(data), qos=1)
+        redis_client.publish(REDIS_CHANNEL, json.dumps(data))
         file_service.save_log(data, TOPIC)
 
         current_time = time.time()
