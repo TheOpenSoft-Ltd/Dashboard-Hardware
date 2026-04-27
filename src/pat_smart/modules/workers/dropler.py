@@ -33,7 +33,7 @@ TOPIC = "sensor/{}/dropler".format(DEVICE_ID)
 STATUS_TOPIC = "sensor/{}/status".format(DEVICE_ID)
 HEARTBEAT_TOPIC = "sensor/{}/heartbeat".format(DEVICE_ID)
 
-MODBUS_PORT = os.getenv("USBPORT", "/dev/ttyUSB0")
+MODBUS_PORT = os.getenv("MODBUS_USBPORT", "/dev/ttyUSB0")
 MODBUS_SLAVEID = 1
 MODBUS_BAUDRATE = 9600
 

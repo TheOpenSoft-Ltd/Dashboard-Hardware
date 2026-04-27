@@ -14,8 +14,6 @@ class FileService:
 
     def __init__(self):
         log_dir = settings.LOG_DIR
-        if settings.ENV == "production":
-            log_dir = Path("/var/log/pat-smart")
         self.log_dir = log_dir
         self.filename_prefix = settings.LOG_FILE_PREFIX
         self._lock = threading.Lock()
@@ -32,7 +30,7 @@ class FileService:
     def _write(self, message: str) -> None:
         self._ensure_log_dir()
         log_path = self._get_log_path()
-        timestamp = datetime.now(tz=self.THAILAND_TZ).isoformat()
+        timestamp = datetime.now(tz=ZoneInfo("UTC")).isoformat()
         log_line = f"{timestamp} {message}\n"
         with self._lock:
             with open(log_path, "a") as f:
@@ -52,15 +50,20 @@ class FileService:
         if not log_path.exists():
             return logs
 
+        now = datetime.now(tz=self.THAILAND_TZ)
         for i in range(days):
-            date = datetime.now(tz=self.THAILAND_TZ) - timedelta(days=i)
+            date = now - timedelta(days=i)
             filename = f"{self.filename_prefix}_{date.strftime('%Y%m%d')}.log"
             file_path = log_path / filename
             if file_path.exists():
-                with open(file_path, "r") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line:
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                        lines = content.strip().splitlines()
+                        for line in lines:
+                            line = line.strip()
+                            if not line:
+                                continue
                             try:
                                 if "[cyan]TOPIC[/cyan]" in line:
                                     parts = line.split(" | ", 3)
@@ -93,7 +96,9 @@ class FileService:
                                         data = json.loads(parts[1])
                                         data["_timestamp"] = parts[0]
                                         logs.append(data)
-                            except json.JSONDecodeError:
-                                pass
+                            except (json.JSONDecodeError, IndexError):
+                                continue
+                except OSError:
+                    continue
         logs.reverse()
         return logs
