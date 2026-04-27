@@ -280,7 +280,7 @@ get_latest_release() {
   echo "$result"
 }
 
-download_and_extract() {
+download_and_install() {
   local version="$1"
   
   if [[ "$version" == "latest" ]]; then
@@ -306,41 +306,85 @@ download_and_extract() {
     wget --timeout=60 -qO "$archive" "$url" || error "Download failed. URL: $url"
   fi
   
-  log "Extracting package..."
+  log "Installing pat-smart with pipx..."
+  pipx install "$archive" || error "pipx install failed"
+  
+  log "Extracting for worker files..."
   tar -xzf "$archive" -C "$TEMP_DIR" || error "Extraction failed"
   
   local source_dir=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "pat-smart-*" | head -n1)
-  [[ -z "$source_dir" ]] && error "Failed to locate extracted files"
-  
   echo "$source_dir"
-}
-
-install_package() {
-  local package_path="$1"
-  
-  log "Installing pat-smart with pipx..."
-  cd "$package_path"
-  
-  pipx install "$package_path" || error "pipx install failed"
-  
-  log "pat-smart installed successfully"
+  echo "$archive"
 }
 
 copy_workers() {
-  local package_path="$1"
+  local archive="$1"
   
   log "Copying worker files to ~/.config/pat-smart..."
   
-  local worker_src="$package_path/src/pat_smart/modules/workers"
+  local extract_dir=$(mktemp -d)
+  tar -xzf "$archive" -C "$extract_dir" || error "Extraction failed"
+  
+  log "Extracted contents: $(ls -la "$extract_dir")"
+  
+  local source_dir=$(find "$extract_dir" -maxdepth 1 -type d -name "pat-smart-*" -o -name "pat_smart-*" | head -1)
+  local worker_src="$source_dir/src/pat_smart/modules/workers"
   local worker_dest="$HOME/.config/pat-smart/workers"
+  
+  log "Source dir: $source_dir"
+  log "Worker src: $worker_src"
   
   if [[ -d "$worker_src" ]]; then
     mkdir -p "$worker_dest"
     cp -r "$worker_src"/* "$worker_dest/"
     log "Worker files copied to $worker_dest"
   else
-    log "Warning: workers directory not found at $worker_src"
+    rm -rf "$extract_dir"
+    error "Workers directory not found at $worker_src"
   fi
+  
+  rm -rf "$extract_dir"
+}
+
+create_env_file() {
+  log "Creating default .env file..."
+  
+  local env_dir="$HOME/.config/pat-smart"
+  local env_file="$env_dir/.env"
+  
+  mkdir -p "$env_dir"
+  
+  if [[ -f "$env_file" ]]; then
+    log ".env file already exists at $env_file"
+    return
+  fi
+  
+  cat > "$env_file" <<'EOF'
+ENV=development
+MQTT_HOST=localhost
+MQTT_PORT=1883
+MQTT_CERT=temp
+MQTT_PRIVATE_KEY=temp
+MQTT_CA=temp
+DEVICE_ID=temp
+STATION_ID=temp
+STATION_NAME=temp
+MODE=DROPLER
+HEARTBEAT_INTERVAL=10
+LOG_DIR=~/.local/state/pat-smart/logs
+LOG_FILE_PREFIX=sensor
+MODBUS_HOST=localhost
+MODBUS_PORT=502
+MODBUS_USBPORT=/dev/ttyUSB0
+RTMP_URL=
+RTSP_URL=
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_RADAR_CHANNEL=radar-data
+REDIS_DROPLER_CHANNEL=dropler-data
+EOF
+  
+  log "Default .env file created at $env_file"
 }
 
 start_redis() {
@@ -370,11 +414,29 @@ main() {
   log "Checking dependencies..."
   check_dependencies
   
-  local package_path
-  package_path=$(download_and_extract "$INSTALL_VERSION")
+  log "Removing any conflicting local installations..."
+  if [[ -f "$HOME/.local/bin/pat-smart" ]]; then
+    rm -f "$HOME/.local/bin/pat-smart" 2>/dev/null || true
+  fi
   
-  install_package "$package_path"
-  copy_workers "$package_path"
+  local project_venv="$PWD/.venv/bin/pat-smart"
+  if [[ -f "$project_venv" ]]; then
+    log "Removing conflicting local venv installation..."
+    rm -f "$project_venv" 2>/dev/null || true
+  fi
+  
+  if [[ -f "$HOME/.pyenv/shims/pat-smart" ]]; then
+    log "Removing conflicting pyenv shim..."
+    rm -f "$HOME/.pyenv/shims/pat-smart" 2>/dev/null || true
+  fi
+  
+  local output
+  output=$(download_and_install "$INSTALL_VERSION")
+  local archive=$(echo "$output" | tail -1)
+  
+  copy_workers "$archive"
+  
+  create_env_file
   
   start_redis
   
