@@ -1,4 +1,6 @@
+from importlib.metadata import requires
 from pathlib import Path
+from typing import Required
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,6 +12,9 @@ def _get_env_file_path():
     local_env = Path(".env")
     if local_env.exists():
         return str(local_env)
+    current_dir = Path.cwd() / ".env"
+    if current_dir.exists():
+        return str(current_dir)
     return None
 
 
@@ -35,8 +40,8 @@ class Settings(BaseSettings):
     MODBUS_HOST: str = "localhost"
     MODBUS_PORT: int = 502
     MODBUS_USBPORT: str = "/dev/ttyUSB0"
-    RTMP_URL: str = ""
-    RTSP_URL: str = ""
+    RTMP_URL: str = "rtsp://localhost:1000"
+    RTSP_URL: str = "rtmp://localhost:8444"
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_RADAR_CHANNEL: str = "radar-data"
