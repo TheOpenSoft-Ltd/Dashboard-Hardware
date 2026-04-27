@@ -1,0 +1,82 @@
+Screen {
+  padding: 1;
+}
+
+AppHeader {
+  height: 20%;
+  margin: 0;
+}
+
+AppBody {
+  height: 80%;
+  margin: 0;
+}
+
+LogoApp {
+  width: 45%;
+  align: center middle;
+}
+
+DataSensor {
+  width: 20%;
+}
+
+DataSensor StatusGroup {
+  width: 100%;
+  border: round cyan;
+  padding: 1;
+}
+
+DataSensor RadarGroup {
+  width: 100%;
+  border: round cyan;
+  padding: 1;
+}
+
+DataSensor DroplerGroup {
+  width: 100%;
+  border: round cyan;
+  padding: 1;
+}
+
+DataLog {
+  width: 80%;
+}
+
+DataLog > Horizontal {
+  height: 1fr;
+}
+
+DataLog LogList {
+  border: round gray;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow-x: scroll;
+}
+
+DataLog LogList:focus {
+  border: round cyan;
+}
+
+DataLog LogList.selected {
+  width: 60%;
+}
+
+DataLog LogDetail {
+  width: 0%;
+  height: 100%;
+  background: transparent;
+  padding: 1 2 1 2;
+  border: round gray;
+  display: none;
+}
+
+DataLog LogDetail:focus {
+  border: round cyan;
+}
+
+DataLog LogDetail.selected {
+  width: 40%;
+  display: block;
+}

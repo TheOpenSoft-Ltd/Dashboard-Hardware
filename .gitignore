@@ -9,6 +9,15 @@ wheels/
 # venv
 .venv
 
+# env
+*.env
+
+# certs folder
+certs/
+
+# logs folder
+logs/
+
 # editor
 .vscode/
 .idea/
@@ -19,3 +28,4 @@ snapshot_report.html
 *.afdesign*
 *.afphoto
 *.afphoto*
+.ruff_cache
