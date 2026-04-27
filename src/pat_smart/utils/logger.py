@@ -9,7 +9,6 @@ from rich.logging import RichHandler
 
 
 class TopicFormatter(logging.Formatter):
-
     def formatTime(self, record, datefmt=None):
         dt_utc = datetime.fromtimestamp(record.created, tz=timezone.utc)
         dt_bkk = dt_utc.astimezone(ZoneInfo("Asia/Bangkok"))
@@ -53,7 +52,9 @@ def setup_logger(name: str = "sandbox") -> logging.Logger:
 
 def log_topic(logger, topic: str, payload: dict):
     payload_json = json.dumps(
-        payload, separators=(",", ":"), ensure_ascii=False  # 🔥 important for UTF-8
+        payload,
+        separators=(",", ":"),
+        ensure_ascii=False,  # 🔥 important for UTF-8
     )
 
     logger.info(

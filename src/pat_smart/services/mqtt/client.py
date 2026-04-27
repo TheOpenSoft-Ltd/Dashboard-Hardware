@@ -24,6 +24,7 @@ class MQTTClient:
         self.port = settings.MQTT_PORT
         self.deviceId = settings.DEVICE_ID
         self.status_topic = f"sensor/{settings.DEVICE_ID}/status"
+        self.heartbeat_topic = f"sensor/{settings.DEVICE_ID}/heartbeat"
 
         self.client = mqtt.Client(
             client_id=f"${settings.DEVICE_ID}-${generate_random_sha()}",
@@ -44,7 +45,9 @@ class MQTTClient:
             topic=self.status_topic,
             payload=json.dumps(
                 {
-                    "deviceId": settings.DEVICE_ID,
+                    "id": settings.STATION_ID,
+                    "device_id": settings.DEVICE_ID,
+                    "mode": settings.MODE,
                     "status": SensorStatusType.OFFLINE,
                 },
             ),
@@ -90,7 +93,9 @@ class MQTTClient:
         self.publish(
             self.status_topic,
             {
-                "deviceId": settings.DEVICE_ID,
+                "id": settings.STATION_ID,
+                "device_id": settings.DEVICE_ID,
+                "mode": settings.MODE,
                 "status": SensorStatusType.OFFLINE,
                 "lastseen": str(datetime.now(tz=timezone.utc)),
             },
@@ -118,14 +123,16 @@ class MQTTClient:
         while not self._stop_heartbeat.is_set():
             if self._connected.is_set():
                 self.publish(
-                    self.status_topic,
+                    self.heartbeat_topic,
                     {
-                        "deviceId": settings.DEVICE_ID,
+                        "id": settings.STATION_ID,
+                        "device_id": settings.DEVICE_ID,
+                        "mode": settings.MODE,
                         "status": SensorStatusType.ONLINE,
                         "lastseen": str(datetime.now(tz=timezone.utc)),
                     },
                     qos=1,
-                    retain=True,
+                    retain=False,
                 )
 
             time.sleep(self.STATUS_INTERVAL)
@@ -149,7 +156,9 @@ class MQTTClient:
             self.publish(
                 self.status_topic,
                 {
-                    "deviceId": settings.DEVICE_ID,
+                    "id": settings.STATION_ID,
+                    "device_id": settings.DEVICE_ID,
+                    "mode": settings.MODE,
                     "status": SensorStatusType.ONLINE,
                     "lastseen": str(datetime.now(tz=timezone.utc)),
                 },

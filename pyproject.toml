@@ -16,14 +16,17 @@ requires-python = ">=3.11"
 dependencies = [
     "logging>=0.4.9.6",
     "paho-mqtt>=2.1.0",
+    "psutil>=7.0.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "pymodbus>=3.11.4",
+    "pyserial>=3.5",
     "python-dotenv>=1.2.1",
     "rich-click>=1.9.7",
     "textual-dev>=1.8.0",
     "textual[syntax]>=8.0.0",
     "typer>=0.21.1",
+    "redis>=5.2.2",
 ]
 
 [project.scripts]
