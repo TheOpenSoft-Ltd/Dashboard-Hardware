@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     DEVICE_ID: str = "temp"
     STATION_ID: str = "temp"
     STATION_NAME: str = "temp"
-    MODE: str = "DROPLER"
+    MODE: str = ""
     HEARTBEAT_INTERVAL: int = 10
     LOG_DIR: str = str(Path.home() / ".local" / "state" / "pat-smart" / "logs")
     LOG_FILE_PREFIX: str = "sensor"
