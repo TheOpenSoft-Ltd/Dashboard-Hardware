@@ -1,6 +1,6 @@
 # 🚀 PAT Smart CLI Installation Guide
 
-## 📖 Overview
+### 📖 Overview
 
 PAT Smart is a CLI-based monitoring and worker management tool for:
 
@@ -24,7 +24,7 @@ The CLI provides:
 
 # ⚙️ Installation
 
-## ⚡ Quick Install
+### ⚡ Quick Install
 
 Run:
 
@@ -41,19 +41,15 @@ This installer automatically installs:
 * Git
 * PAT Smart
 
----
-
-# 📦 Install Specific Version
+### 📦 Install Specific Version
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TheOpenSoft-Ltd/Dashboard-Hardware/main/scripts/install.sh | bash -s -- --version v0.1.0
 ```
 
----
-
 # Manual Installation
 
-## Install from Release Package
+### Install from Release Package
 
 ```bash
 pipx install pat-smart-0.1.0.tar.gz
