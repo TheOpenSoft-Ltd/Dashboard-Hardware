@@ -139,7 +139,7 @@ def on_disconnect(client, userdata, reason_code, properties=None):
     file_service.save_log(
         {"event": "disconnected", "status": "offline", "rc": result.rc}, STATUS_TOPIC
     )
-    raise ConnectionError(f"MQTT disconnected with code {reason_code}")
+    print("Auto-reconnect enabled, waiting for reconnection...")
 
 
 mqtt_client = mqtt.Client(
@@ -162,6 +162,7 @@ mqtt_client.will_set(
 )
 mqtt_client.on_connect = on_connect
 mqtt_client.on_disconnect = on_disconnect
+mqtt_client.reconnect_delay_set(min_delay=5, max_delay=5)
 
 mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
 mqtt_client.loop_start()
