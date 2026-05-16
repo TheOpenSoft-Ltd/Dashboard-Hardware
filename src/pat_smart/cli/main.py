@@ -267,6 +267,10 @@ MODBUS_USBPORT={modbus_usbport}
 # REDIS
 REDIS_HOST={redis_host}
 REDIS_PORT={redis_port}
+
+# STREAMING
+RTSP_URL=
+RTMP_URL=
 """
 
     ENV_FILE.write_text(
