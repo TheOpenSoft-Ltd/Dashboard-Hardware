@@ -15,7 +15,7 @@ from pymodbus.client import ModbusSerialClient
 
 load_dotenv()
 
-THAILAND_TZ = ZoneInfo("Asia/Bangkok")
+UTC_TZ = ZoneInfo("UTC")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
@@ -57,7 +57,7 @@ class FileService:
         self._lock = threading.Lock()
 
     def _get_log_path(self) -> Path:
-        now = datetime.datetime.now(tz=THAILAND_TZ)
+        now = datetime.datetime.now(tz=UTC_TZ)
         filename = f"{self.filename_prefix}_{now.strftime('%Y%m%d')}.log"
         return Path(self.log_dir) / filename
 
@@ -68,7 +68,7 @@ class FileService:
     def _write(self, message: str) -> None:
         self._ensure_log_dir()
         log_path = self._get_log_path()
-        timestamp = datetime.datetime.now(tz=THAILAND_TZ).isoformat()
+        timestamp = datetime.datetime.now(tz=UTC_TZ).isoformat()
         log_line = f"{timestamp} {message}\n"
         with self._lock:
             with open(log_path, "a") as f:
@@ -139,7 +139,7 @@ def on_disconnect(client, userdata, reason_code, properties=None):
     file_service.save_log(
         {"event": "disconnected", "status": "offline", "rc": result.rc}, STATUS_TOPIC
     )
-    raise ConnectionError(f"MQTT disconnected with code {reason_code}")
+    print("Auto-reconnect enabled, waiting for reconnection...")
 
 
 mqtt_client = mqtt.Client(
@@ -162,6 +162,7 @@ mqtt_client.will_set(
 )
 mqtt_client.on_connect = on_connect
 mqtt_client.on_disconnect = on_disconnect
+mqtt_client.reconnect_delay_set(min_delay=5, max_delay=5)
 
 mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
 mqtt_client.loop_start()
@@ -197,10 +198,10 @@ while True:
         temp = read_float(4)
         cumulative_flow = read_float(8)
 
-        dateTime = str(datetime.datetime.now(tz=THAILAND_TZ))
+        dateTime = str(datetime.datetime.now(tz=UTC_TZ))
 
         data = {
-            "id": STATION_ID,
+            "station_id": STATION_ID,
             "device_id": DEVICE_ID,
             "station_name": STATION_NAME,
             "date_time": dateTime,
@@ -209,7 +210,6 @@ while True:
             "cumulative_flow": float(f"{cumulative_flow:.2f}"),
             "temperature": float(f"{temp:.3f}"),
         }
-        print(data)
 
         mqtt_client.publish(TOPIC, json.dumps(data), qos=1)
         redis_client.publish(REDIS_CHANNEL, json.dumps(data))
@@ -242,7 +242,7 @@ while True:
             "station_name": STATION_NAME,
             "mode": MODE,
             "status": "error",
-            "lastseen": str(datetime.datetime.now(tz=THAILAND_TZ)),
+            "lastseen": str(datetime.datetime.now(tz=UTC_TZ)),
         }
         mqtt_client.publish(
             STATUS_TOPIC, json.dumps(status_payload), qos=1, retain=True

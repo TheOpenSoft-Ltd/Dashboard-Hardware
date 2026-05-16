@@ -15,7 +15,7 @@ from pymodbus.client import ModbusTcpClient
 
 load_dotenv()
 
-THAILAND_TZ = ZoneInfo("Asia/Bangkok")
+UTC_TZ = ZoneInfo("UTC")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
@@ -56,7 +56,7 @@ class FileService:
         self._lock = threading.Lock()
 
     def _get_log_path(self) -> Path:
-        now = datetime.datetime.now(tz=THAILAND_TZ)
+        now = datetime.datetime.now(tz=UTC_TZ)
         filename = f"{self.filename_prefix}_{now.strftime('%Y%m%d')}.log"
         return Path(self.log_dir) / filename
 
@@ -67,7 +67,7 @@ class FileService:
     def _write(self, message: str) -> None:
         self._ensure_log_dir()
         log_path = self._get_log_path()
-        timestamp = datetime.datetime.now(tz=THAILAND_TZ).isoformat()
+        timestamp = datetime.datetime.now(tz=UTC_TZ).isoformat()
         log_line = f"{timestamp} {message}\n"
         with self._lock:
             with open(log_path, "a") as f:
@@ -138,7 +138,7 @@ def on_disconnect(client, userdata, reason_code, properties=None):
     file_service.save_log(
         {"event": "disconnected", "status": "offline", "rc": result.rc}, STATUS_TOPIC
     )
-    raise ConnectionError(f"MQTT disconnected with code {reason_code}")
+    print("Auto-reconnect enabled, waiting for reconnection...")
 
 
 mqtt_client = mqtt.Client(
@@ -213,7 +213,7 @@ while True:
         errorcounter = errorcounter + 1
 
         status_payload = {
-            "id": STATION_ID,
+            "station_id": STATION_ID,
             "device_id": DEVICE_ID,
             "station_name": STATION_NAME,
             "mode": MODE,
