@@ -181,7 +181,7 @@ while True:
         )
         dateTime = str(datetime.datetime.now(datetime.timezone.utc))
         data = {
-            "id": STATION_ID,
+            "station_id": STATION_ID,
             "device_id": DEVICE_ID,
             "station_name": STATION_NAME,
             "date_time": dateTime,
@@ -213,7 +213,7 @@ while True:
         errorcounter = errorcounter + 1
 
         status_payload = {
-            "station_id": STATION_ID,
+            "id": STATION_ID,
             "device_id": DEVICE_ID,
             "station_name": STATION_NAME,
             "mode": MODE,
