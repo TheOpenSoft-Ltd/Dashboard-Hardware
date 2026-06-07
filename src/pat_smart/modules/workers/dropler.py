@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import ssl
 import threading
 import time
 from hashlib import sha1
@@ -38,6 +39,11 @@ MODE = os.getenv("MODE", "DROPLER")
 CLIENT_ID = f"{DEVICE_ID}-{generate_random_sha()}"
 MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_CA = os.getenv("MQTT_CA", "")
+MQTT_CERT = os.getenv("MQTT_CERT", "")
+MQTT_PRIVATE_KEY = os.getenv("MQTT_PRIVATE_KEY", "")
+# Use TLS automatically on the secure MQTT port (8883); plain TCP on 1883.
+MQTT_USE_TLS = MQTT_PORT == 8883
 TOPIC = "sensor/{}/dropler".format(DEVICE_ID)
 STATUS_TOPIC = "sensor/{}/status".format(DEVICE_ID)
 HEARTBEAT_TOPIC = "sensor/{}/heartbeat".format(DEVICE_ID)
@@ -163,6 +169,17 @@ mqtt_client.will_set(
 mqtt_client.on_connect = on_connect
 mqtt_client.on_disconnect = on_disconnect
 mqtt_client.reconnect_delay_set(min_delay=5, max_delay=5)
+
+if MQTT_USE_TLS:
+    print(f"[MQTT] TLS enabled (port {MQTT_PORT})")
+    mqtt_client.tls_set(
+        ca_certs=MQTT_CA or None,
+        certfile=MQTT_CERT or None,
+        keyfile=MQTT_PRIVATE_KEY or None,
+        tls_version=ssl.PROTOCOL_TLS_CLIENT,
+    )
+else:
+    print(f"[MQTT] TLS disabled (port {MQTT_PORT})")
 
 mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
 mqtt_client.loop_start()
