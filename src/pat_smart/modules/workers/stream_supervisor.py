@@ -54,6 +54,12 @@ try:
     import paho.mqtt.client as mqtt
     _mqtt = mqtt.Client(client_id=f"stream-{STREAM_ID}-{os.getpid()}", clean_session=True)
     _mqtt.will_set(STATUS_TOPIC, json.dumps({"stream_id": STREAM_ID, "status": "offline"}), qos=1, retain=True)
+    # Conditional username/password auth: inert until the broker drops allow_anonymous.
+    # Must precede connect(). Independent of TLS — the healer cannot speak TLS, so
+    # user/pass is the auth path for the plain listener.
+    _mu = os.getenv("MQTT_USERNAME", "")
+    if _mu:
+        _mqtt.username_pw_set(_mu, os.getenv("MQTT_PASSWORD") or None)
     # Conditional mutual-TLS: certs when all three files exist, else plaintext (already in try/except).
     _sc = (os.getenv("MQTT_CERT", ""), os.getenv("MQTT_PRIVATE_KEY", ""), os.getenv("MQTT_CA", ""))
     if all(_sc) and all(os.path.exists(p) for p in _sc):
