@@ -386,7 +386,8 @@ def install():
 
         service_content = f"""[Unit]
 Description={service_data['description']}
-After=network.target
+After=time-sync.target network-online.target
+Wants=time-sync.target network-online.target
 
 [Service]
 Type=simple
