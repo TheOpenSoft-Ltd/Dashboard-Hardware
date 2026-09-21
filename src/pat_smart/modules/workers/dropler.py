@@ -179,6 +179,20 @@ mqtt_client.will_set(
 mqtt_client.on_connect = on_connect
 mqtt_client.on_disconnect = on_disconnect
 mqtt_client.reconnect_delay_set(min_delay=5, max_delay=5)
+
+# Conditional mutual-TLS: enable TLS only when all three cert files are present,
+# otherwise connect plaintext. A board without certs degrades to plain instead of
+# crash-looping — safe during the TLS migration (cert files arrive per-station later).
+_mqtt_certs = (os.getenv("MQTT_CERT", ""), os.getenv("MQTT_PRIVATE_KEY", ""), os.getenv("MQTT_CA", ""))
+if all(_mqtt_certs) and all(os.path.exists(p) for p in _mqtt_certs):
+    import ssl
+    mqtt_client.tls_set(
+        ca_certs=_mqtt_certs[2], certfile=_mqtt_certs[0], keyfile=_mqtt_certs[1],
+        tls_version=ssl.PROTOCOL_TLS_CLIENT,
+    )
+    print("[MQTT] TLS enabled (client certs present)", flush=True)
+else:
+    print("[MQTT] plaintext (no client certs present)", flush=True)
 mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
 mqtt_client.loop_start()
 

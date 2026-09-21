@@ -54,6 +54,11 @@ try:
     import paho.mqtt.client as mqtt
     _mqtt = mqtt.Client(client_id=f"stream-{STREAM_ID}-{os.getpid()}", clean_session=True)
     _mqtt.will_set(STATUS_TOPIC, json.dumps({"stream_id": STREAM_ID, "status": "offline"}), qos=1, retain=True)
+    # Conditional mutual-TLS: certs when all three files exist, else plaintext (already in try/except).
+    _sc = (os.getenv("MQTT_CERT", ""), os.getenv("MQTT_PRIVATE_KEY", ""), os.getenv("MQTT_CA", ""))
+    if all(_sc) and all(os.path.exists(p) for p in _sc):
+        import ssl
+        _mqtt.tls_set(ca_certs=_sc[2], certfile=_sc[0], keyfile=_sc[1], tls_version=ssl.PROTOCOL_TLS_CLIENT)
     _mqtt.connect(os.getenv("MQTT_HOST", "localhost"), int(os.getenv("MQTT_PORT", "1883")), keepalive=60)
     _mqtt.reconnect_delay_set(min_delay=5, max_delay=5)
     _mqtt.loop_start()
