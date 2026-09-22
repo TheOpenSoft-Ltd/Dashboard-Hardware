@@ -184,6 +184,16 @@ mqtt_client.will_set(
 mqtt_client.on_connect = on_connect
 mqtt_client.on_disconnect = on_disconnect
 
+# Conditional username/password auth: set credentials only when MQTT_USERNAME is
+# present. Inert while the broker still has allow_anonymous=on, and required the
+# moment it is turned off — so credentials can be rolled out ahead of the flip
+# rather than during it. Must be called BEFORE connect(). Independent of TLS: the
+# healer cannot speak TLS, so user/pass is the auth path for the plain listener.
+_mqtt_user = os.getenv("MQTT_USERNAME", "")
+if _mqtt_user:
+    mqtt_client.username_pw_set(_mqtt_user, os.getenv("MQTT_PASSWORD") or None)
+    print("[MQTT] credentials set (user=%s)" % _mqtt_user, flush=True)
+
 # Conditional mutual-TLS: enable TLS only when all three cert files are present,
 # otherwise connect plaintext. A board without certs degrades to plain instead of
 # crash-looping — safe during the TLS migration (cert files arrive per-station later).
