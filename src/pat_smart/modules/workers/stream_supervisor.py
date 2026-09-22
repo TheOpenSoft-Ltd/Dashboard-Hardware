@@ -32,6 +32,8 @@ HEARTBEAT_INTERVAL = float(os.getenv("HEARTBEAT_INTERVAL") or "15")
 ENC = os.getenv("ENC", "libx264")                            # copy | h264_v4l2m2m | libx264
 BITRATE = os.getenv("BITRATE", "2000k")
 GOP = os.getenv("GOP_SIZE", "60")
+AUDIO = os.getenv("AUDIO", "aac")                            # aac | none (camera with no usable audio track)
+AUDIO_BITRATE = os.getenv("AUDIO_BITRATE", "128k")
 
 # --- optional systemd watchdog ---
 try:
@@ -108,10 +110,13 @@ def build_ffmpeg():
     # watchdog (§3.3) which is build-independent. Set FFMPEG_INPUT_OPTS in .env only if your
     # build supports it, e.g. "-timeout 5000000".
     extra_in = os.getenv("FFMPEG_INPUT_OPTS", "").split()
+    # AUDIO=none -> -an. Some cameras expose an audio track ffmpeg cannot encode and the
+    # whole stream dies on it (PIT036, hand-fixed on site 2026-07-06). Default keeps aac.
+    aenc = ["-an"] if AUDIO.strip().lower() in ("none", "off", "0", "") else ["-c:a", AUDIO, "-b:a", AUDIO_BITRATE]
     return [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "warning",
         "-rtsp_transport", "tcp", *extra_in, "-i", RTSP_URL,
-        *venc, "-g", GOP, "-c:a", "aac", "-b:a", "128k",
+        *venc, "-g", GOP, *aenc,
         "-f", "flv", "-progress", "pipe:1", "-stats_period", "2", RTMP_URL,
     ]
 
