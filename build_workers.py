@@ -150,7 +150,10 @@ def rollout_json(version, build, canary, percent):
 def run_unit_tests():
     r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", os.path.join(HERE, "tests"),
                         "-p", "test_*.py", "-v"], cwd=HERE, capture_output=True, text=True, timeout=900)
-    tail = "\n".join((r.stdout + r.stderr).strip().splitlines()[-4:])
+    out = (r.stdout + r.stderr).strip().splitlines()
+    # the names of the failing tests plus the summary, so a CI log says WHAT failed, not just that it did
+    named = [ln for ln in out if ln.startswith(("FAIL:", "ERROR:"))]
+    tail = "\n".join(named + out[-4:])
     return r.returncode == 0, tail
 
 
