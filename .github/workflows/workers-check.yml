@@ -1,0 +1,48 @@
+name: workers bundle check
+
+# Runs what a release run would run, minus the signature: stage the OTA bundle, execute
+# ota/selftest.py, prove the archive is deterministic, run tests/test_build_workers.py.
+# The signing key never reaches GitHub (plan §6): --sign is a laptop-only step.
+
+on:
+  pull_request:
+    paths:
+      - "src/pat_smart/modules/workers/**"
+      - "ota/**"
+      - "build_workers.py"
+      - "tests/test_build_workers.py"
+      - ".github/workflows/workers-check.yml"
+  push:
+    branches: [develop, main]
+    paths:
+      - "src/pat_smart/modules/workers/**"
+      - "ota/**"
+      - "build_workers.py"
+      - "dist/workers.*"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --quiet cryptography
+      - run: python build_workers.py --check
+      - name: published bundle matches the source of this commit (when dist/ is present)
+        if: ${{ hashFiles('dist/workers.tar.gz') != '' }}
+        run: |
+          python - <<'PY'
+          import hashlib, io, tarfile, sys
+          tar = tarfile.open("dist/workers.tar.gz", "r:gz")
+          bad = []
+          for n in ("radar.py", "dropler.py", "stream.sh", "stream_supervisor.py"):
+              a = hashlib.sha256(tar.extractfile(n).read()).hexdigest()
+              b = hashlib.sha256(open("src/pat_smart/modules/workers/" + n, "rb").read()).hexdigest()
+              if a != b: bad.append(n)
+          ver = open("dist/workers.version").read().strip(); src = open("ota/WORKERS_VERSION").read().strip()
+          if ver != src: bad.append("workers.version %s != ota/WORKERS_VERSION %s" % (ver, src))
+          print("published bundle vs source:", "OK" if not bad else "MISMATCH " + ", ".join(bad))
+          sys.exit(1 if bad else 0)
+          PY
