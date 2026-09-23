@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -169,10 +170,12 @@ def _run_module(name, env, record):
     try:
         with _Env(**env):
             exec(code, ns)
-    except Exception as e:  # noqa: BLE001 - re-raised with the worker's own output attached
+    except Exception as e:  # noqa: BLE001 - re-raised with the worker's own output and the failing frames attached
         sys.stdout = real_stdout
         tail = " | ".join(captured.getvalue().strip().splitlines()[-3:])
-        raise RuntimeError("%s: %s%s" % (type(e).__name__, e, (" [worker output: %s]" % tail) if tail else "")) from None
+        frames = traceback.extract_tb(sys.exc_info()[2])[-3:]
+        where = " <- ".join("%s:%d" % (os.path.basename(f.filename), f.lineno) for f in reversed(frames))
+        raise RuntimeError("%s: %s [at %s]%s" % (type(e).__name__, e, where, (" [worker output: %s]" % tail) if tail else "")) from None
     finally:
         sys.stdout = real_stdout
         for k, v in saved.items():
