@@ -2,7 +2,13 @@
 __pycache__/
 *.py[oc]
 build/
-dist/
+# dist/ holds ONLY the published worker OTA bundle (signed release the fleet pulls);
+# everything else that lands there (uv build output) stays ignored.
+dist/*
+!dist/workers.tar.gz
+!dist/workers.tar.gz.sig
+!dist/workers.version
+!dist/workers.rollout.json
 wheels/
 *.egg-info
 
