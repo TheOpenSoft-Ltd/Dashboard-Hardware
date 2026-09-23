@@ -309,11 +309,21 @@ def check_stream_supervisor(fail, tmp):
 
 
 def check_real_deps(fail, notes):
-    probe = "import importlib,sys\nmissing=[m for m in %r if not __import__('importlib').util.find_spec(m.split('.')[0])]\nprint(','.join(missing))" % (REAL_DEPS,)
+    # a subprocess so the stubs installed above cannot mask a missing package; find_spec on the
+    # full dotted name imports the parent packages, which is exactly what the worker will do
+    probe = (
+        "import importlib.util\n"
+        "missing=[]\n"
+        "for m in %r:\n"
+        "    try:\n"
+        "        if importlib.util.find_spec(m) is None: missing.append(m)\n"
+        "    except Exception: missing.append(m)\n"
+        "print(','.join(missing))\n" % (REAL_DEPS,)
+    )
     r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=60)
     missing = [m for m in r.stdout.strip().split(",") if m]
     if r.returncode != 0:
-        missing = list(REAL_DEPS)
+        missing = ["probe failed: %s" % (r.stderr.strip().splitlines() or ["rc=%d" % r.returncode])[-1]]
     if missing:
         msg = "real dependencies not importable with %s: %s" % (sys.executable, ", ".join(missing))
         if os.environ.get("SELFTEST_REQUIRE_DEPS") == "1":
