@@ -35,13 +35,17 @@ jobs:
         run: |
           python - <<'PY'
           import hashlib, io, tarfile, sys
+          ver = open("dist/workers.version").read().strip(); src = open("ota/WORKERS_VERSION").read().strip()
+          if int(src) > int(ver):
+              # a PR that bumps the version before the release is signed: dist/ is legitimately the
+              # previous release until --sign runs on the laptop. Only an equal version must match.
+              print("published bundle is v%s, source is v%s: release pending, nothing to compare" % (ver, src)); sys.exit(0)
           tar = tarfile.open("dist/workers.tar.gz", "r:gz")
           bad = []
           for n in ("radar.py", "dropler.py", "stream.sh", "stream_supervisor.py"):
               a = hashlib.sha256(tar.extractfile(n).read()).hexdigest()
               b = hashlib.sha256(open("src/pat_smart/modules/workers/" + n, "rb").read()).hexdigest()
               if a != b: bad.append(n)
-          ver = open("dist/workers.version").read().strip(); src = open("ota/WORKERS_VERSION").read().strip()
           if ver != src: bad.append("workers.version %s != ota/WORKERS_VERSION %s" % (ver, src))
           print("published bundle vs source:", "OK" if not bad else "MISMATCH " + ", ".join(bad))
           sys.exit(1 if bad else 0)
