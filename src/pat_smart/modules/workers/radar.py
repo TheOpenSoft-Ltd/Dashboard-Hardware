@@ -152,15 +152,93 @@ errorcounter = 0            # lifetime (kept for backward compat)
 reconnect_count = 0
 
 
+# --- one station status for a dual-sensor station (workers v4, 2026-09-25) -------------------------
+# On a FULL station radar.py (level) and dropler.py (flow) share one DEVICE_ID and one status topic:
+# whichever spoke last used to win, so the map flipped every ~10 s and one worker could cancel the
+# other's offline. Now each worker leaves its own status in a small file in RAM, and this worker - the
+# level, the main sensor - publishes ONE station status by Carey's rule (2026-09-25): "use water level
+# as main, if this is down, it can show as offline, if only flow rate offline, it can show as error".
+SENSOR = "level"
+OTHER_SENSOR = "flow" if MODE == "FULL" else None
+SENSOR_STATE_DIR = os.getenv("SENSOR_STATE_DIR") or ("/dev/shm" if os.path.isdir("/dev/shm") else "/tmp")
+SENSOR_STALE_S = float(os.getenv("SENSOR_STALE_S") or "30")  # each worker rewrites its file every loop
+SENSOR_GRACE_S = float(os.getenv("SENSOR_GRACE_S") or "60")  # after our own start the other may still be starting
+_started = time.monotonic()
+_last_own = None  # this sensor's last status that was not a DEGRADED/STARTING spell
+
+
+def station_status(level, flow):
+    """The station's one status from its two sensors (None = nothing known yet). Radar-only: flow is None."""
+    if level == "offline":
+        return "offline"
+    if level == "error":
+        return "error"
+    if level == "online":
+        return "error" if flow in ("error", "offline") else "online"
+    return None
+
+
+def _sensor_path(name):
+    return os.path.join(SENSOR_STATE_DIR, "pat-smart-%s-%s.json" % (DEVICE_ID or "station", name))
+
+
+def write_sensor_state(status, now=None):
+    """Leave this sensor's own status for the other worker on the same station (atomic replace)."""
+    path = _sensor_path(SENSOR)
+    try:
+        with open(path + ".tmp", "w") as f:
+            json.dump({"status": status, "state": state, "t": time.time() if now is None else now}, f)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass  # the other worker then sees this sensor as down after SENSOR_STALE_S: loud, not silent
+
+
+def read_sensor_state(name, now=None):
+    """The other sensor's status from its file if fresh; "offline" when the file is missing or older
+    than SENSOR_STALE_S (its worker is gone); None while this worker is still in its start-up grace."""
+    now = time.time() if now is None else now
+    try:
+        with open(_sensor_path(name)) as f:
+            d = json.load(f)
+        if now - float(d.get("t", 0)) <= SENSOR_STALE_S and d.get("status") in ("online", "error", "offline"):
+            return d["status"]
+    except (OSError, ValueError, TypeError):
+        pass
+    return None if time.monotonic() - _started < SENSOR_GRACE_S else "offline"
+
+
+def own_status():
+    """This sensor's status: online / error / offline (v3 dead sensor). A DEGRADED spell keeps the last
+    one - the status topic has never published degraded - and it is None before the first reading."""
+    global _last_own
+    s = STATE_STATUS.get(state)
+    if s is not None:
+        _last_own = s
+    return _last_own
+
+
+def station_view(now=None):
+    """(station status, per-sensor detail or None). Radar-only stations: this sensor's status alone."""
+    own = own_status()
+    if not OTHER_SENSOR:
+        return own, None
+    other = read_sensor_state(OTHER_SENSOR, now)
+    return station_status(own, other), {"level": own, "flow": other}
+
+
 def _status_payload(status):
-    return {
+    p = {
         "id": STATION_ID,
         "device_id": DEVICE_ID,
         "station_name": STATION_NAME,
         "mode": MODE,
         "status": status,
         "lastseen": str(datetime.datetime.now(datetime.timezone.utc)),
+        "sensor": SENSOR,
     }
+    if OTHER_SENSOR:
+        p["sensors"] = station_view()[1]
+    return p
 
 
 def publish_status(status):
@@ -172,12 +250,15 @@ def publish_status(status):
 
 
 def enter(new_state):
-    """Transition the health state; publish status only when it changes."""
+    """Transition the health state; publish the station status only when it changes. On a FULL
+    station that status also moves when the flow meter's does, so this runs every loop."""
     global state
     if new_state != state:
         print(f"[radar] state {state} -> {new_state}", flush=True)
         state = new_state
-    status = STATE_STATUS.get(new_state)
+    if OTHER_SENSOR:
+        write_sensor_state(own_status())
+    status = station_view()[0]
     if status and status != last_status:
         publish_status(status)
 
@@ -550,8 +631,10 @@ while True:
             "station_name": STATION_NAME,
             "mode": MODE,
             # SENSOR_FAULT says "offline" here too: the ingest releases a held offline only while the
-            # station's latest report (this heartbeat, every 10 s) still says offline
-            "status": HEARTBEAT_STATUS.get(state, "degraded"),
+            # station's latest report (this heartbeat, every 10 s) still says offline. On a FULL station
+            # both workers' heartbeats carry the STATION status, so they no longer contradict each other.
+            "status": (station_view()[0] or "degraded") if OTHER_SENSOR else HEARTBEAT_STATUS.get(state, "degraded"),
+            "sensor": SENSOR,
             "lastseen": str(datetime.datetime.now(datetime.timezone.utc)),
             "health_state": state,
             "consecutive_errors": _failures,
@@ -560,6 +643,8 @@ while True:
             "current_ma": current_snapshot(),
             "fault_code": fault_snapshot(),
         }
+        if OTHER_SENSOR:
+            hb["sensors"] = station_view()[1]
         mqtt_client.publish(HEARTBEAT_TOPIC, json.dumps(hb), qos=1, retain=False)
         last_heartbeat = time.time()
 

@@ -124,6 +124,80 @@ last_heartbeat = 0.0
 errorcounter = 0
 reconnect_count = 0
 
+# --- one station status for a dual-sensor station (workers v4, 2026-09-25) -------------------------
+# On a FULL station the LEVEL worker (radar.py) speaks for the station - Carey 2026-09-25: "use water
+# level as main, if this is down, it can show as offline, if only flow rate offline, it can show as
+# error". This worker leaves its own status in a file in RAM for it, publishes that own status and its
+# last will on its OWN topic (a dead flow meter must never announce the whole station offline), and
+# its heartbeat carries the same station status as the level worker's, so the two stop contradicting
+# each other. MODE=DROPLER (flow meter only) keeps the old behaviour: this worker is the station.
+SENSOR = "flow"
+OTHER_SENSOR = "level" if MODE == "FULL" else None
+OWN_STATUS_TOPIC = "sensor/{}/status/flow".format(DEVICE_ID) if OTHER_SENSOR else STATUS_TOPIC
+SENSOR_STATE_DIR = os.getenv("SENSOR_STATE_DIR") or ("/dev/shm" if os.path.isdir("/dev/shm") else "/tmp")
+SENSOR_STALE_S = float(os.getenv("SENSOR_STALE_S") or "30")
+SENSOR_GRACE_S = float(os.getenv("SENSOR_GRACE_S") or "60")
+_started = time.monotonic()
+_last_own = None
+
+
+def station_status(level, flow):
+    """The station's one status from its two sensors (None = nothing known yet). Same rule as radar.py."""
+    if level == "offline":
+        return "offline"
+    if level == "error":
+        return "error"
+    if level == "online":
+        return "error" if flow in ("error", "offline") else "online"
+    return None
+
+
+def _sensor_path(name):
+    return os.path.join(SENSOR_STATE_DIR, "pat-smart-%s-%s.json" % (DEVICE_ID or "station", name))
+
+
+def write_sensor_state(status, now=None):
+    """Leave this sensor's own status for the level worker on the same station (atomic replace)."""
+    path = _sensor_path(SENSOR)
+    try:
+        with open(path + ".tmp", "w") as f:
+            json.dump({"status": status, "state": state, "t": time.time() if now is None else now}, f)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass
+
+
+def read_sensor_state(name, now=None):
+    """The other sensor's status from its file if fresh; "offline" when missing or older than
+    SENSOR_STALE_S; None while this worker is still in its start-up grace."""
+    now = time.time() if now is None else now
+    try:
+        with open(_sensor_path(name)) as f:
+            d = json.load(f)
+        if now - float(d.get("t", 0)) <= SENSOR_STALE_S and d.get("status") in ("online", "error", "offline"):
+            return d["status"]
+    except (OSError, ValueError, TypeError):
+        pass
+    return None if time.monotonic() - _started < SENSOR_GRACE_S else "offline"
+
+
+def own_status():
+    """This sensor's status: online / error; a DEGRADED spell keeps the last one; None before the first."""
+    global _last_own
+    s = STATE_STATUS.get(state)
+    if s is not None:
+        _last_own = s
+    return _last_own
+
+
+def station_view(now=None):
+    """(station status, per-sensor detail or None). MODE=DROPLER: this sensor's status alone."""
+    own = own_status()
+    if not OTHER_SENSOR:
+        return own, None
+    level = read_sensor_state(OTHER_SENSOR, now)
+    return station_status(level, own), {"level": level, "flow": own}
+
 
 def _status_payload(status):
     return {
@@ -133,14 +207,16 @@ def _status_payload(status):
         "mode": MODE,
         "status": status,
         "lastseen": str(datetime.datetime.now(datetime.timezone.utc)),
+        "sensor": SENSOR,
     }
 
 
 def publish_status(status):
+    """This sensor's own status: the station topic when it is the only sensor, else its own topic."""
     global last_status
     last_status = status
-    mqtt_client.publish(STATUS_TOPIC, json.dumps(_status_payload(status)), qos=1, retain=True)
-    file_service.save_log({"event": "status", "status": status}, STATUS_TOPIC)
+    mqtt_client.publish(OWN_STATUS_TOPIC, json.dumps(_status_payload(status)), qos=1, retain=True)
+    file_service.save_log({"event": "status", "status": status}, OWN_STATUS_TOPIC)
 
 
 def enter(new_state):
@@ -148,6 +224,8 @@ def enter(new_state):
     if new_state != state:
         print(f"[dropler] state {state} -> {new_state}", flush=True)
         state = new_state
+    if OTHER_SENSOR:
+        write_sensor_state(own_status())
     status = STATE_STATUS.get(new_state)
     if status and status != last_status:
         publish_status(status)
@@ -160,7 +238,7 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
         print("MQTT Client Connected", flush=True)
         if last_status:
-            client.publish(STATUS_TOPIC, json.dumps(_status_payload(last_status)), qos=1, retain=True)
+            client.publish(OWN_STATUS_TOPIC, json.dumps(_status_payload(last_status)), qos=1, retain=True)
     else:
         print(f"MQTT Connection failed with code {reason_code}", flush=True)
 
@@ -171,8 +249,8 @@ def on_disconnect(client, userdata, reason_code, properties=None):
 
 mqtt_client = mqtt.Client(client_id=CLIENT_ID, clean_session=True)
 mqtt_client.will_set(
-    topic=STATUS_TOPIC,
-    payload=json.dumps({"id": STATION_ID, "device_id": DEVICE_ID, "mode": MODE, "status": "offline"}),
+    topic=OWN_STATUS_TOPIC,  # FULL: the flow meter's own topic - its death is an error for the station, not offline
+    payload=json.dumps({"id": STATION_ID, "device_id": DEVICE_ID, "mode": MODE, "status": "offline", "sensor": SENSOR}),
     qos=1,
     retain=True,
 )
@@ -335,13 +413,18 @@ while True:
             "device_id": DEVICE_ID,
             "station_name": STATION_NAME,
             "mode": MODE,
-            "status": "online" if state == "ONLINE" else ("error" if state == "FAULT" else "degraded"),
+            # FULL: the STATION status (the same one the level worker reports), not this sensor's
+            "status": (station_view()[0] or "degraded") if OTHER_SENSOR
+                      else ("online" if state == "ONLINE" else ("error" if state == "FAULT" else "degraded")),
             "lastseen": str(datetime.datetime.now(datetime.timezone.utc)),
             "health_state": state,
             "consecutive_errors": _failures,
             "reconnect_count": reconnect_count,
             "last_success_age_s": round(time.monotonic() - last_success, 1),
+            "sensor": SENSOR,
         }
+        if OTHER_SENSOR:
+            hb["sensors"] = station_view()[1]
         mqtt_client.publish(HEARTBEAT_TOPIC, json.dumps(hb), qos=1, retain=False)
         last_heartbeat = time.time()
 
