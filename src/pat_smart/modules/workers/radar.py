@@ -52,13 +52,22 @@ MODBUS_SLAVEID = 1
 # --- 4-20 mA loop current (Track A, 2026-09-23) ----------------------------
 # The VEGAMET does not expose the loop current on Modbus (register sweep 0..40000
 # found only the PV); it is on the controller's web status page, no PIN. The
-# worker publishes the raw number only (decision D2); classification lives
-# downstream in the statistics service.
+# worker publishes the raw number (decision D2), and since v3 also the
+# controller's own word that its sensor is not measuring (see sensor_fault_code).
 CURRENT_HOST = os.getenv("VEGAMET_HTTP_HOST") or MODBUS_HOST
 CURRENT_POLL_S = float(os.getenv("CURRENT_POLL_S") or "10")      # one HTTP read every N s, off the level path
 CURRENT_TIMEOUT_S = float(os.getenv("CURRENT_TIMEOUT_S") or "2")  # a page read takes ~0.5 s on the LAN
 CURRENT_STALE_S = float(os.getenv("CURRENT_STALE_S") or "60")     # older than this -> current_ma is null
-LOOP_MIN_MA, LOOP_MAX_MA = 3.8, 20.5                              # outside = loop fault (logged here, classified downstream)
+# NAMUR NE43 failure limits: at or beyond them the sensor is not measuring. 3.8-4.0 mA is the
+# under-range of a DRY sensor and 20.0-20.5 its over-range: readings, not faults (PIR010 at 3.799 mA).
+LOOP_MIN_MA, LOOP_MAX_MA = 3.6, 21.0
+# --- dead sensor (workers v3, 2026-09-25) -------------------------------------
+# PIT043: VEGAPULS F013 (no echo) -> failure current -> VEGAMET "E 015" -> Modbus PV 0 -> published
+# for a week as a dry pipe at 0.00 m. Now: while the controller says its sensor is not measuring,
+# data_source = "sensor_fault" (+ fault_code) on every sample, and once that has held for
+# SENSOR_FAULT_AFTER_S the station reports itself OFFLINE until SENSOR_OK_AFTER_S of good readings.
+SENSOR_FAULT_AFTER_S = float(os.getenv("SENSOR_FAULT_AFTER_S") or "120")  # a radar losing its echo in rain/foam
+SENSOR_OK_AFTER_S = float(os.getenv("SENSOR_OK_AFTER_S") or "30")         # recovers in seconds: no flapping
 
 LOG_DIR = os.getenv("LOG_DIR", "./logs")
 LOG_FILE_PREFIX = "sensor"
@@ -133,7 +142,9 @@ file_service = FileService(LOG_DIR, LOG_FILE_PREFIX)
 #   status published to STATUS_TOPIC ONLY on transition (edge-triggered),
 #   so recovery self-clears a stuck "error" and there is no log/MQTT spam.
 # ==========================================================================
-STATE_STATUS = {"ONLINE": "online", "FAULT": "error", "OFFLINE": "offline"}
+# SENSOR_FAULT: the controller answers but says its sensor is not measuring -> the station is offline
+STATE_STATUS = {"ONLINE": "online", "FAULT": "error", "OFFLINE": "offline", "SENSOR_FAULT": "offline"}
+HEARTBEAT_STATUS = {"ONLINE": "online", "FAULT": "error", "SENSOR_FAULT": "offline"}  # anything else: degraded
 state = "STARTING"
 last_status = None          # last status actually published to STATUS_TOPIC
 last_heartbeat = 0.0
@@ -308,9 +319,17 @@ def on_read_failure(err):
 # carries the last value read (or null when never read / older than
 # CURRENT_STALE_S) plus data_source, which read_level() already computes.
 # ==========================================================================
-_current = {"ma": None, "ts": 0.0, "prefix": None, "ok": None}
+_current = {"ma": None, "err": None, "ts": 0.0, "prefix": None, "ok": None}
 _current_lock = threading.Lock()
 _MA_RE = re.compile(r"([0-9]+[.,][0-9]+)\s*mA")
+# The current-input row's value cell: the text between the LAST row label and its unit (the page
+# repeats the label as a heading above the table). It holds the loop current ("7,044") or the
+# controller's error code ("E 015"). Both German and English controllers are in the fleet (PIT002
+# is English). Same rule as the healer's loop check (Smart-Healer healers/vegamet_loop.py).
+_LABEL = r"(?:Stromeingang|current\s+input)"
+_CELL_RE = re.compile(r"%s\s+((?:(?!%s).)*?)\s*mA\b" % (_LABEL, _LABEL), re.S | re.I)
+_NUM_RE = re.compile(r"^[0-9]+[.,][0-9]+$")
+_ERR_RE = re.compile(r"\bE\s?0?(\d{2,3})\b")
 
 
 def _http_get(url, timeout=CURRENT_TIMEOUT_S):
@@ -328,16 +347,37 @@ def discover_current_prefix():
     return path.rsplit("/", 1)[0] + "/"
 
 
-def parse_current_ma(html):
-    """First 'n,nnn mA' / 'n.nnn mA' on the page with tags stripped, as a float; None if absent."""
+def parse_input(html):
+    """(current_ma, err) from the controller's input page: the labelled cell holds the loop current
+    or an error code ("E 015" -> 'E015'). A page without the label falls back to the first
+    'n,nnn mA' anywhere - a number only; an error code is only trusted from the labelled cell.
+    (None, None) when there is neither (a blank cell says nothing either way)."""
     text = re.sub(r"<[^>]+>", " ", html)
+    m = _CELL_RE.search(text)
+    if m:
+        cell = re.sub(r"\s+", " ", m.group(1)).strip()
+        e = _ERR_RE.search(cell)
+        if e:
+            return None, "E%03d" % int(e.group(1))
+        if _NUM_RE.match(cell):
+            return float(cell.replace(",", ".")), None
+        return None, None
     m = _MA_RE.search(text)
-    return float(m.group(1).replace(",", ".")) if m else None
+    return (float(m.group(1).replace(",", ".")), None) if m else (None, None)
+
+
+def parse_current_ma(html):
+    """The loop current alone (the v2 call): see parse_input."""
+    return parse_input(html)[0]
+
+
+def read_input_once(prefix):
+    _, html = _http_get("http://%s%sinput.htm" % (CURRENT_HOST, prefix))
+    return parse_input(html)
 
 
 def read_current_once(prefix):
-    _, html = _http_get("http://%s%sinput.htm" % (CURRENT_HOST, prefix))
-    return parse_current_ma(html)
+    return read_input_once(prefix)[0]
 
 
 def current_snapshot():
@@ -348,6 +388,76 @@ def current_snapshot():
         return _current["ma"]
 
 
+# --- dead sensor (v3) ------------------------------------------------------------------------------
+_sensor = {"fault_since": None, "ok_since": None, "down": False, "evidence_ts": 0.0}
+
+
+def sensor_fault_code(ma, err):
+    """The controller's own word that its sensor is not measuring, as a code; None = measuring.
+    An error code in the input cell (E013/E014/E015 = sensor current < 3.6 mA or line break), or a
+    loop current at or beyond the NE43 limits. A dry pipe (~4 mA, no code) IS measuring."""
+    if err:
+        return err
+    if ma is not None and ma <= LOOP_MIN_MA:
+        return "LOOP_LOW"
+    if ma is not None and ma >= LOOP_MAX_MA:
+        return "LOOP_HIGH"
+    return None
+
+
+def fault_snapshot():
+    """The fault code of the last page reading; None when it says measuring, was never read, or is
+    older than CURRENT_STALE_S - no fresh evidence, no claim."""
+    with _current_lock:
+        if _current["ts"] == 0.0 or time.monotonic() - _current["ts"] > CURRENT_STALE_S:
+            return None
+        return sensor_fault_code(_current["ma"], _current["err"])
+
+
+def _drop_stale_verdict(now):
+    """Caller holds _current_lock. No reading with evidence for CURRENT_STALE_S: a dead-sensor
+    verdict is not kept on nothing."""
+    if now - _sensor["evidence_ts"] > CURRENT_STALE_S and (_sensor["down"] or _sensor["fault_since"] is not None):
+        if _sensor["down"]:
+            print("[radar] no fresh reading from the controller: sensor verdict dropped -> station online", flush=True)
+        _sensor.update(fault_since=None, ok_since=None, down=False)
+
+
+def note_reading(ma, err, now):
+    """Fold one page reading into the dead-sensor state: down after SENSOR_FAULT_AFTER_S of faults,
+    up again after SENSOR_OK_AFTER_S of good readings. A blank cell is no evidence either way."""
+    code = sensor_fault_code(ma, err)
+    with _current_lock:
+        if ma is None and err is None:
+            _drop_stale_verdict(now)
+            return
+        _sensor["evidence_ts"] = now
+        if code:
+            _sensor["ok_since"] = None
+            if _sensor["fault_since"] is None:
+                _sensor["fault_since"] = now
+            if not _sensor["down"] and now - _sensor["fault_since"] >= SENSOR_FAULT_AFTER_S:
+                _sensor["down"] = True
+                print(f"[radar] SENSOR FAULT {code}: the controller says the sensor is not measuring -> station offline", flush=True)
+        else:
+            _sensor["fault_since"] = None
+            if _sensor["ok_since"] is None:
+                _sensor["ok_since"] = now
+            if _sensor["down"] and now - _sensor["ok_since"] >= SENSOR_OK_AFTER_S:
+                _sensor["down"] = False
+                print(f"[radar] sensor measuring again ({ma} mA) -> station online", flush=True)
+
+
+def note_unreadable(now):
+    with _current_lock:
+        _drop_stale_verdict(now)
+
+
+def sensor_down():
+    with _current_lock:
+        return _sensor["down"]
+
+
 def _current_loop():
     time.sleep(2)  # let the level loop come up first; the first payloads carry null
     fails = 0
@@ -356,12 +466,14 @@ def _current_loop():
             if _current["prefix"] is None:
                 _current["prefix"] = discover_current_prefix()
                 print(f"[radar] loop current page: http://{CURRENT_HOST}{_current['prefix']}input.htm", flush=True)
-            ma = read_current_once(_current["prefix"])
+            ma, err = read_input_once(_current["prefix"])
+            now = time.monotonic()
             with _current_lock:
-                _current["ma"], _current["ts"] = ma, time.monotonic()
-            ok = ma is not None and LOOP_MIN_MA <= ma <= LOOP_MAX_MA
+                _current["ma"], _current["err"], _current["ts"] = ma, err, now
+            note_reading(ma, err, now)
+            ok = ma is not None and sensor_fault_code(ma, err) is None
             if ok != _current["ok"]:
-                print(f"[radar] loop {'ok' if ok else 'FAULT'}: {ma} mA", flush=True)
+                print(f"[radar] loop {'ok' if ok else 'FAULT'}: {err or ma} {'' if err else 'mA'}", flush=True)
                 _current["ok"] = ok
             fails = 0
             delay = CURRENT_POLL_S
@@ -371,12 +483,14 @@ def _current_loop():
                 print(f"[radar] loop current read error #{fails}: {e!r}", flush=True)
             if fails >= 3:
                 _current["prefix"] = None  # re-discover: the controller may have rebooted or renumbered its pages
+            note_unreadable(time.monotonic())
             delay = min(CURRENT_POLL_S * (2 ** min(fails, 4)), 300)
         time.sleep(delay)
 
 
-def build_payload(level, data_source):
-    """The radar payload: level as before, plus the raw loop current and where the level came from."""
+def build_payload(level, data_source, fault_code=None):
+    """The radar payload: level as before, plus the raw loop current, where the level came from, and
+    (v3) the controller's fault code when data_source is sensor_fault."""
     ma = current_snapshot()
     return {
         "station_id": STATION_ID,
@@ -386,7 +500,19 @@ def build_payload(level, data_source):
         "level": float("{0:.2f}".format(level)),
         "current_ma": None if ma is None else round(ma, 3),
         "data_source": data_source,
+        "fault_code": fault_code,
     }
+
+
+def classify_sample(level, data_source):
+    """(payload, state) for one successful level read. A fresh fault from the controller overrides
+    the Modbus-derived source on every sample (the level is not a measurement then, whatever PV
+    says - PIT043's 0.00 m was a dead sensor, not a dry pipe); the station state follows the held
+    verdict, so a radar that loses its echo for a few seconds does not go offline."""
+    code = fault_snapshot()
+    if code:
+        data_source = "sensor_fault"
+    return build_payload(level, data_source, code), ("SENSOR_FAULT" if sensor_down() else "ONLINE")
 
 
 threading.Thread(target=_current_loop, name="loop-current", daemon=True).start()
@@ -401,12 +527,12 @@ last_success = time.monotonic()
 while True:
     try:
         level, data_source = read_level()
-        data = build_payload(level, data_source)
+        data, sample_state = classify_sample(level, data_source)
         mqtt_client.publish(TOPIC, json.dumps(data), qos=1)
         redis_client.publish(REDIS_CHANNEL, json.dumps(data))
         file_service.save_log(data, TOPIC)
         last_success = time.monotonic()
-        enter("ONLINE")
+        enter(sample_state)
     except Exception as error:
         errorcounter += 1
         on_read_failure(error)
@@ -423,13 +549,16 @@ while True:
             "device_id": DEVICE_ID,
             "station_name": STATION_NAME,
             "mode": MODE,
-            "status": "online" if state == "ONLINE" else ("error" if state == "FAULT" else "degraded"),
+            # SENSOR_FAULT says "offline" here too: the ingest releases a held offline only while the
+            # station's latest report (this heartbeat, every 10 s) still says offline
+            "status": HEARTBEAT_STATUS.get(state, "degraded"),
             "lastseen": str(datetime.datetime.now(datetime.timezone.utc)),
             "health_state": state,
             "consecutive_errors": _failures,
             "reconnect_count": reconnect_count,
             "last_success_age_s": round(time.monotonic() - last_success, 1),
             "current_ma": current_snapshot(),
+            "fault_code": fault_snapshot(),
         }
         mqtt_client.publish(HEARTBEAT_TOPIC, json.dumps(hb), qos=1, retain=False)
         last_heartbeat = time.time()
