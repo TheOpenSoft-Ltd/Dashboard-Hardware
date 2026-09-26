@@ -51,11 +51,38 @@ except Exception:
 # --- optional MQTT status (edge-triggered, retained, self-clearing) ---
 STATUS_TOPIC = f"cctv/{STREAM_ID}/status"
 HEARTBEAT_TOPIC = f"cctv/{STREAM_ID}/heartbeat"
+STATE_STATUS = {"STREAMING": "online", "FAULT": "error", "OFFLINE": "offline"}
+STATUS_REASSERT_S = float(os.getenv("STATUS_REASSERT_S") or "60")
+state = "STARTING"
+last_status = None
+last_reason = None
+_last_assert = 0.0
+
+
+def _status_json(status, reason):
+    return json.dumps({
+        "stream_id": STREAM_ID, "device_id": DEVICE_ID, "status": status, "fault_reason": reason,
+        "lastseen": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+
+
+def _on_connect(client, userdata, flags, reason_code, properties=None):
+    # After any (re)connect the broker has already published the last will ("offline", retained).
+    # Status is edge-triggered, so without this a stream that kept running stays "offline" until its
+    # state next changes (41 cameras on 2026-09-26). Re-assert the real current status, as radar and
+    # dropler do - never force online: before the first status there is nothing to say.
+    if reason_code == 0 and last_status:
+        client.publish(STATUS_TOPIC, _status_json(last_status, last_reason), qos=1, retain=True)
+
+
 _mqtt = None
 try:
     import paho.mqtt.client as mqtt
     _mqtt = mqtt.Client(client_id=f"stream-{STREAM_ID}-{os.getpid()}", clean_session=True)
-    _mqtt.will_set(STATUS_TOPIC, json.dumps({"stream_id": STREAM_ID, "status": "offline"}), qos=1, retain=True)
+    _mqtt.will_set(STATUS_TOPIC, json.dumps({
+        "stream_id": STREAM_ID, "device_id": DEVICE_ID, "status": "offline", "fault_reason": "mqtt_disconnected",
+    }), qos=1, retain=True)
+    _mqtt.on_connect = _on_connect
     # Conditional username/password auth: inert until the broker drops allow_anonymous.
     # Must precede connect(). Independent of TLS — the healer cannot speak TLS, so
     # user/pass is the auth path for the plain listener.
@@ -67,25 +94,34 @@ try:
     if all(_sc) and all(os.path.exists(p) for p in _sc):
         import ssl
         _mqtt.tls_set(ca_certs=_sc[2], certfile=_sc[0], keyfile=_sc[1], tls_version=ssl.PROTOCOL_TLS_CLIENT)
-    _mqtt.connect(os.getenv("MQTT_HOST", "localhost"), int(os.getenv("MQTT_PORT", "1883")), keepalive=60)
+    # connect_async, not connect: a broker that is unreachable at start (the healer restarts this service
+    # exactly when the network is in trouble) raised here and left MQTT disabled for the life of the
+    # process - no status, no heartbeat (PIT034 from 09-24 15:36, PIT038 from 09-25 14:47). loop_start()
+    # retries the first connection too, every reconnect delay; on_connect then says the current status.
     _mqtt.reconnect_delay_set(min_delay=5, max_delay=5)
+    _mqtt.connect_async(os.getenv("MQTT_HOST", "localhost"), int(os.getenv("MQTT_PORT", "1883")), keepalive=60)
     _mqtt.loop_start()
 except Exception as e:
     print(f"[stream] MQTT disabled: {e!r}", flush=True)
 
-STATE_STATUS = {"STREAMING": "online", "FAULT": "error", "OFFLINE": "offline"}
-state = "STARTING"
-last_status = None
-
-
 def publish_status(status, reason=None):
-    global last_status
-    last_status = status
+    global last_status, last_reason, _last_assert
+    last_status, last_reason = status, reason
     if _mqtt:
-        _mqtt.publish(STATUS_TOPIC, json.dumps({
-            "stream_id": STREAM_ID, "device_id": DEVICE_ID, "status": status, "fault_reason": reason,
-            "lastseen": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }), qos=1, retain=True)
+        _mqtt.publish(STATUS_TOPIC, _status_json(status, reason), qos=1, retain=True)
+        _last_assert = time.monotonic()
+
+
+def reassert_status(now=None):
+    """Re-publish the current status every STATUS_REASSERT_S. on_connect covers a reconnect of THIS
+    process; after a healer restart the old, already-dead connection's last will lands ~90 s later
+    (keepalive expiry), after this process said online - 11 of the 54 false "offline" rows on
+    2026-09-26. This bounds such a will to a minute; the recorder treats the repeat as unchanged."""
+    global _last_assert
+    now = time.monotonic() if now is None else now
+    if _mqtt and last_status and now - _last_assert >= STATUS_REASSERT_S:
+        _mqtt.publish(STATUS_TOPIC, _status_json(last_status, last_reason), qos=1, retain=True)
+        _last_assert = now
 
 
 def enter(new_state, reason=None):
@@ -168,6 +204,7 @@ def run_ffmpeg_once():
             enter("STREAMING")
         if streaming_announced:
             wd_ping()  # only pet the watchdog while frames are actually advancing
+        reassert_status()
         if stalled > STALL_TTL:
             print(f"[stream] frozen ({stalled:.0f}s no progress) -> killing ffmpeg", flush=True)
             proc.kill()
@@ -182,6 +219,7 @@ wd_ready()
 failures = 0
 last_heartbeat = 0.0
 while True:
+    reassert_status()  # also between retries: the pre-check paths below `continue` past the loop end
     # dependency pre-check (don't spin ffmpeg against a dead camera/AMS)
     if not reachable(RTSP_URL, 554):
         enter("FAULT", "camera_unreachable"); failures += 1
