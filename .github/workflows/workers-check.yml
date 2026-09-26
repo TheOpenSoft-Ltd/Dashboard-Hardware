@@ -48,5 +48,10 @@ jobs:
               if a != b: bad.append(n)
           if ver != src: bad.append("workers.version %s != ota/WORKERS_VERSION %s" % (ver, src))
           print("published bundle vs source:", "OK" if not bad else "MISMATCH " + ", ".join(bad))
+          if bad and ver == src and all(n.endswith((".py", ".sh")) for n in bad):
+              # the usual cause: a PR changed a worker without bumping the version (PR #34 did, twice)
+              print("::error title=bump ota/WORKERS_VERSION::%s changed but ota/WORKERS_VERSION is still %s - "
+                    "set it to %d in this PR. dist/ stays the signed v%s until release-workers.sh signs the new one."
+                    % (", ".join(bad), src, int(src) + 1, ver))
           sys.exit(1 if bad else 0)
           PY
