@@ -51,11 +51,36 @@ except Exception:
 # --- optional MQTT status (edge-triggered, retained, self-clearing) ---
 STATUS_TOPIC = f"cctv/{STREAM_ID}/status"
 HEARTBEAT_TOPIC = f"cctv/{STREAM_ID}/heartbeat"
+STATE_STATUS = {"STREAMING": "online", "FAULT": "error", "OFFLINE": "offline"}
+state = "STARTING"
+last_status = None
+last_reason = None
+
+
+def _status_json(status, reason):
+    return json.dumps({
+        "stream_id": STREAM_ID, "device_id": DEVICE_ID, "status": status, "fault_reason": reason,
+        "lastseen": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+
+
+def _on_connect(client, userdata, flags, reason_code, properties=None):
+    # After any (re)connect the broker has already published the last will ("offline", retained).
+    # Status is edge-triggered, so without this a stream that kept running stays "offline" until its
+    # state next changes (41 cameras on 2026-09-26). Re-assert the real current status, as radar and
+    # dropler do - never force online: before the first status there is nothing to say.
+    if reason_code == 0 and last_status:
+        client.publish(STATUS_TOPIC, _status_json(last_status, last_reason), qos=1, retain=True)
+
+
 _mqtt = None
 try:
     import paho.mqtt.client as mqtt
     _mqtt = mqtt.Client(client_id=f"stream-{STREAM_ID}-{os.getpid()}", clean_session=True)
-    _mqtt.will_set(STATUS_TOPIC, json.dumps({"stream_id": STREAM_ID, "status": "offline"}), qos=1, retain=True)
+    _mqtt.will_set(STATUS_TOPIC, json.dumps({
+        "stream_id": STREAM_ID, "device_id": DEVICE_ID, "status": "offline", "fault_reason": "mqtt_disconnected",
+    }), qos=1, retain=True)
+    _mqtt.on_connect = _on_connect
     # Conditional username/password auth: inert until the broker drops allow_anonymous.
     # Must precede connect(). Independent of TLS — the healer cannot speak TLS, so
     # user/pass is the auth path for the plain listener.
@@ -73,19 +98,11 @@ try:
 except Exception as e:
     print(f"[stream] MQTT disabled: {e!r}", flush=True)
 
-STATE_STATUS = {"STREAMING": "online", "FAULT": "error", "OFFLINE": "offline"}
-state = "STARTING"
-last_status = None
-
-
 def publish_status(status, reason=None):
-    global last_status
-    last_status = status
+    global last_status, last_reason
+    last_status, last_reason = status, reason
     if _mqtt:
-        _mqtt.publish(STATUS_TOPIC, json.dumps({
-            "stream_id": STREAM_ID, "device_id": DEVICE_ID, "status": status, "fault_reason": reason,
-            "lastseen": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }), qos=1, retain=True)
+        _mqtt.publish(STATUS_TOPIC, _status_json(status, reason), qos=1, retain=True)
 
 
 def enter(new_state, reason=None):
