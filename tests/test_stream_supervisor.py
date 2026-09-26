@@ -91,6 +91,32 @@ class ReassertOnReconnect(unittest.TestCase):
         self.assertEqual(len(self.statuses()), 1)
 
 
+class ConnectNeverGivesUp(unittest.TestCase):
+    """A broker unreachable at start used to raise in connect() and leave MQTT disabled for the life of the
+    process (PIT034 for two days, PIT038 since 09-25 14:47). connect_async + loop_start retries instead."""
+
+    def setUp(self):
+        self.ns, self.client = load_supervisor()
+
+    def test_connects_asynchronously_and_keeps_the_client(self):
+        self.assertTrue(self.client.called("connect_async"))
+        self.assertFalse(self.client.called("connect"))
+        self.assertIsNotNone(self.ns["_mqtt"])
+        self.assertEqual(self.client.called("connect_async")[0][1][:2], ("127.0.0.1", 1883))
+
+    def test_retry_delay_is_set_before_the_loop_starts(self):
+        names = [n for n, a, k in self.client.calls]
+        self.assertLess(names.index("reconnect_delay_set"), names.index("loop_start"))
+        self.assertLess(names.index("connect_async"), names.index("loop_start"))
+
+    def test_status_before_the_first_connect_is_said_on_connect(self):
+        self.ns["enter"]("STREAMING")  # streaming while the broker is still unreachable
+        self.client.on_connect(self.client, None, {}, 0)
+        topic = self.ns["STATUS_TOPIC"]
+        said = [json.loads(a[1])["status"] for n, a, k in self.client.calls if n == "publish" and a and a[0] == topic]
+        self.assertEqual(said[-1], "online")
+
+
 class PeriodicReassert(unittest.TestCase):
     """After a healer restart the OLD connection's will lands ~90 s after the new process said online;
     no reconnect happens, so only a periodic re-assert overwrites it."""

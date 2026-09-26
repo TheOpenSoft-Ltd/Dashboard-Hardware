@@ -288,8 +288,10 @@ def check_stream_supervisor(fail, tmp):
         fail(name, "%s: %s" % (type(e).__name__, e))
         return
     mq = [r for r in record if r.kind == "mqtt.Client"]
-    if len(mq) != 1 or not mq[0].called("connect") or not mq[0].called("will_set"):
-        fail(name, "MQTT status client not wired (Client/will_set/connect)")
+    if len(mq) != 1 or not mq[0].called("connect_async") or not mq[0].called("will_set"):
+        fail(name, "MQTT status client not wired (Client/will_set/connect_async)")
+    elif mq[0].called("connect"):
+        fail(name, "blocking connect(): a broker unreachable at start would disable MQTT for the process")
     elif not callable(getattr(mq[0], "on_connect", None)):
         fail(name, "no on_connect: after a reconnect the last will would leave the camera 'offline'")
     if "build_ffmpeg" not in ns:

@@ -94,8 +94,12 @@ try:
     if all(_sc) and all(os.path.exists(p) for p in _sc):
         import ssl
         _mqtt.tls_set(ca_certs=_sc[2], certfile=_sc[0], keyfile=_sc[1], tls_version=ssl.PROTOCOL_TLS_CLIENT)
-    _mqtt.connect(os.getenv("MQTT_HOST", "localhost"), int(os.getenv("MQTT_PORT", "1883")), keepalive=60)
+    # connect_async, not connect: a broker that is unreachable at start (the healer restarts this service
+    # exactly when the network is in trouble) raised here and left MQTT disabled for the life of the
+    # process - no status, no heartbeat (PIT034 from 09-24 15:36, PIT038 from 09-25 14:47). loop_start()
+    # retries the first connection too, every reconnect delay; on_connect then says the current status.
     _mqtt.reconnect_delay_set(min_delay=5, max_delay=5)
+    _mqtt.connect_async(os.getenv("MQTT_HOST", "localhost"), int(os.getenv("MQTT_PORT", "1883")), keepalive=60)
     _mqtt.loop_start()
 except Exception as e:
     print(f"[stream] MQTT disabled: {e!r}", flush=True)
