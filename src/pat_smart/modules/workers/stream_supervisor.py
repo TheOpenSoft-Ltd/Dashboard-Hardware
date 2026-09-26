@@ -52,9 +52,11 @@ except Exception:
 STATUS_TOPIC = f"cctv/{STREAM_ID}/status"
 HEARTBEAT_TOPIC = f"cctv/{STREAM_ID}/heartbeat"
 STATE_STATUS = {"STREAMING": "online", "FAULT": "error", "OFFLINE": "offline"}
+STATUS_REASSERT_S = float(os.getenv("STATUS_REASSERT_S") or "60")
 state = "STARTING"
 last_status = None
 last_reason = None
+_last_assert = 0.0
 
 
 def _status_json(status, reason):
@@ -99,10 +101,23 @@ except Exception as e:
     print(f"[stream] MQTT disabled: {e!r}", flush=True)
 
 def publish_status(status, reason=None):
-    global last_status, last_reason
+    global last_status, last_reason, _last_assert
     last_status, last_reason = status, reason
     if _mqtt:
         _mqtt.publish(STATUS_TOPIC, _status_json(status, reason), qos=1, retain=True)
+        _last_assert = time.monotonic()
+
+
+def reassert_status(now=None):
+    """Re-publish the current status every STATUS_REASSERT_S. on_connect covers a reconnect of THIS
+    process; after a healer restart the old, already-dead connection's last will lands ~90 s later
+    (keepalive expiry), after this process said online - 11 of the 54 false "offline" rows on
+    2026-09-26. This bounds such a will to a minute; the recorder treats the repeat as unchanged."""
+    global _last_assert
+    now = time.monotonic() if now is None else now
+    if _mqtt and last_status and now - _last_assert >= STATUS_REASSERT_S:
+        _mqtt.publish(STATUS_TOPIC, _status_json(last_status, last_reason), qos=1, retain=True)
+        _last_assert = now
 
 
 def enter(new_state, reason=None):
@@ -185,6 +200,7 @@ def run_ffmpeg_once():
             enter("STREAMING")
         if streaming_announced:
             wd_ping()  # only pet the watchdog while frames are actually advancing
+        reassert_status()
         if stalled > STALL_TTL:
             print(f"[stream] frozen ({stalled:.0f}s no progress) -> killing ffmpeg", flush=True)
             proc.kill()
@@ -199,6 +215,7 @@ wd_ready()
 failures = 0
 last_heartbeat = 0.0
 while True:
+    reassert_status()  # also between retries: the pre-check paths below `continue` past the loop end
     # dependency pre-check (don't spin ffmpeg against a dead camera/AMS)
     if not reachable(RTSP_URL, 554):
         enter("FAULT", "camera_unreachable"); failures += 1

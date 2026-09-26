@@ -91,5 +91,37 @@ class ReassertOnReconnect(unittest.TestCase):
         self.assertEqual(len(self.statuses()), 1)
 
 
+class PeriodicReassert(unittest.TestCase):
+    """After a healer restart the OLD connection's will lands ~90 s after the new process said online;
+    no reconnect happens, so only a periodic re-assert overwrites it."""
+
+    def setUp(self):
+        self.ns, self.client = load_supervisor()
+        self.topic = self.ns["STATUS_TOPIC"]
+        self.every = self.ns["STATUS_REASSERT_S"]
+
+    def statuses(self):
+        return [json.loads(a[1])["status"] for n, a, k in self.client.calls if n == "publish" and a and a[0] == self.topic]
+
+    def test_nothing_before_the_first_status(self):
+        self.ns["reassert_status"](now=10 ** 9)
+        self.assertEqual(self.statuses(), [])
+
+    def test_repeats_the_status_once_per_interval(self):
+        self.ns["enter"]("STREAMING")
+        t0 = self.ns["_last_assert"]
+        self.ns["reassert_status"](now=t0 + self.every / 2)       # too soon
+        self.assertEqual(self.statuses(), ["online"])
+        self.ns["reassert_status"](now=t0 + self.every + 1)       # a late will may have landed: say it again
+        self.assertEqual(self.statuses(), ["online", "online"])
+        self.ns["reassert_status"](now=t0 + self.every + 2)       # and not again right away
+        self.assertEqual(self.statuses(), ["online", "online"])
+
+    def test_repeats_a_fault_too(self):
+        self.ns["enter"]("FAULT", "ams_unreachable")
+        self.ns["reassert_status"](now=self.ns["_last_assert"] + self.every + 1)
+        self.assertEqual(self.statuses(), ["error", "error"])
+
+
 if __name__ == "__main__":
     unittest.main()
