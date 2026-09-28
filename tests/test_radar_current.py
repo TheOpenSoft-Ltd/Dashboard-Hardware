@@ -255,10 +255,11 @@ class RadarSensorFault(unittest.TestCase):
         self.ns["note_unreadable"](t0 + 1120 + self.ns["CURRENT_STALE_S"] + 1)
         self.assertFalse(down(), "page unreachable past CURRENT_STALE_S -> verdict dropped")
 
-    def test_the_station_reports_offline_on_both_channels(self):
-        self.assertEqual(self.ns["STATE_STATUS"]["SENSOR_FAULT"], "offline")
-        self.assertEqual(self.ns["HEARTBEAT_STATUS"]["SENSOR_FAULT"], "offline",
-                         "the ingest releases a held offline only while the heartbeat also says offline")
+    def test_the_station_reports_error_on_both_channels(self):
+        # Carey 2026-09-28: a reachable controller with an invalid reading (E 015) is ERROR, not offline.
+        self.assertEqual(self.ns["STATE_STATUS"]["SENSOR_FAULT"], "error")
+        self.assertEqual(self.ns["HEARTBEAT_STATUS"]["SENSOR_FAULT"], "error",
+                         "status and heartbeat agree: a sensor fault shows as error on both channels")
         self.assertEqual(self.ns["HEARTBEAT_STATUS"].get("DEGRADED", "degraded"), "degraded")
         self.assertEqual(self.ns["HEARTBEAT_STATUS"]["ONLINE"], "online")
 

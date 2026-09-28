@@ -101,12 +101,13 @@ class DualStation(unittest.TestCase):
         self.assertEqual(self.radar["station_view"]()[0], "error")
         self.assertEqual(self.dropler["station_view"]()[0], "error", "the flow worker's heartbeat says the same")
 
-    def test_a_dead_level_sensor_is_offline_whatever_the_flow_meter_says(self):
+    def test_a_dead_level_sensor_is_error_whatever_the_flow_meter_says(self):
         self.dropler["enter"]("ONLINE")
         self.radar["enter"]("SENSOR_FAULT")            # v3: controller says the level sensor is not measuring
-        self.assertEqual(published(self.rc, self.station_topic)[-1]["status"], "offline")
-        self.assertEqual(self.dropler["station_view"]()[0], "offline",
-                         "the flow worker's heartbeat must also say offline, or the ingest drops the held offline")
+        # Carey 2026-09-28: a reachable level sensor with an invalid reading (E 015) is ERROR, not offline.
+        self.assertEqual(published(self.rc, self.station_topic)[-1]["status"], "error")
+        self.assertEqual(self.dropler["station_view"]()[0], "error",
+                         "both workers' heartbeats agree the station is in error")
 
     def test_recovery_goes_back_online_on_both(self):
         self.dropler["enter"]("FAULT")
