@@ -65,7 +65,7 @@ LOOP_MIN_MA, LOOP_MAX_MA = 3.6, 21.0
 # PIT043: VEGAPULS F013 (no echo) -> failure current -> VEGAMET "E 015" -> Modbus PV 0 -> published
 # for a week as a dry pipe at 0.00 m. Now: while the controller says its sensor is not measuring,
 # data_source = "sensor_fault" (+ fault_code) on every sample, and once that has held for
-# SENSOR_FAULT_AFTER_S the station reports itself OFFLINE until SENSOR_OK_AFTER_S of good readings.
+# SENSOR_FAULT_AFTER_S the station reports itself in ERROR until SENSOR_OK_AFTER_S of good readings.
 SENSOR_FAULT_AFTER_S = float(os.getenv("SENSOR_FAULT_AFTER_S") or "120")  # a radar losing its echo in rain/foam
 SENSOR_OK_AFTER_S = float(os.getenv("SENSOR_OK_AFTER_S") or "30")         # recovers in seconds: no flapping
 
@@ -142,9 +142,11 @@ file_service = FileService(LOG_DIR, LOG_FILE_PREFIX)
 #   status published to STATUS_TOPIC ONLY on transition (edge-triggered),
 #   so recovery self-clears a stuck "error" and there is no log/MQTT spam.
 # ==========================================================================
-# SENSOR_FAULT: the controller answers but says its sensor is not measuring -> the station is offline
-STATE_STATUS = {"ONLINE": "online", "FAULT": "error", "OFFLINE": "offline", "SENSOR_FAULT": "offline"}
-HEARTBEAT_STATUS = {"ONLINE": "online", "FAULT": "error", "SENSOR_FAULT": "offline"}  # anything else: degraded
+# SENSOR_FAULT: the controller answers but says its sensor is not measuring -> the station is in ERROR
+# (Carey 2026-09-28: reachable + invalid reading = error, not offline; only a truly unreachable station,
+# i.e. the LWT / OFFLINE state, is offline).
+STATE_STATUS = {"ONLINE": "online", "FAULT": "error", "OFFLINE": "offline", "SENSOR_FAULT": "error"}
+HEARTBEAT_STATUS = {"ONLINE": "online", "FAULT": "error", "SENSOR_FAULT": "error"}  # anything else: degraded
 state = "STARTING"
 last_status = None          # last status actually published to STATUS_TOPIC
 last_heartbeat = 0.0
@@ -630,9 +632,9 @@ while True:
             "device_id": DEVICE_ID,
             "station_name": STATION_NAME,
             "mode": MODE,
-            # SENSOR_FAULT says "offline" here too: the ingest releases a held offline only while the
-            # station's latest report (this heartbeat, every 10 s) still says offline. On a FULL station
-            # both workers' heartbeats carry the STATION status, so they no longer contradict each other.
+            # SENSOR_FAULT reports "error" (Carey 2026-09-28): the controller is reachable but its reading
+            # is invalid (E 015) -> error, not offline; a real offline still comes from the LWT / OFFLINE
+            # state. On a FULL station both workers' heartbeats carry the STATION status, so they agree.
             "status": (station_view()[0] or "degraded") if OTHER_SENSOR else HEARTBEAT_STATUS.get(state, "degraded"),
             "sensor": SENSOR,
             "lastseen": str(datetime.datetime.now(datetime.timezone.utc)),
