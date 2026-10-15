@@ -220,6 +220,13 @@ class OtherStations(unittest.TestCase):
             self.assertEqual(ns["SENSOR_MODEL"], "JGDP-F22D150")
             self.assertEqual(ns["REPORTED_MODE"], mode)
             self.assertFalse(ns["LDFM_LEVEL"])
+            self.assertEqual(ns["MEASURES"], ["flow"])
+
+    def test_heartbeat_says_what_the_worker_measures(self):
+        # the backend's station sensor record: LDFM alone = level + flow, beside a level worker = flow
+        self.assertEqual(load_dropler("DROPLER", "LDFM")[0]["MEASURES"], ["level", "flow"])
+        self.assertEqual(load_dropler("FULL", "LDFM")[0]["MEASURES"], ["flow"])
+        self.assertEqual(load_dropler("DROPLER", "LDFM", {"LDFM_PUBLISH_LEVEL": "0"})[0]["MEASURES"], ["flow"])
 
     def test_ldfm_beside_a_level_radar_leaves_the_level_to_it(self):
         ns, _, _ = load_dropler("FULL", "LDFM")

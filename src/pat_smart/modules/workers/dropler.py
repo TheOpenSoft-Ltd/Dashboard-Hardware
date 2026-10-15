@@ -58,6 +58,9 @@ SENSOR_MODEL = {"JGDP": "JGDP-F22D150", "LDFM": "LDFM"}.get(FLOW_SENSOR, FLOW_SE
 LDFM_LEVEL = FLOW_SENSOR == "LDFM" and MODE == "DROPLER" and (os.getenv("LDFM_PUBLISH_LEVEL") or "1") != "0"
 LEVEL_TOPIC = "sensor/{}/radar".format(DEVICE_ID)
 REPORTED_MODE = "FULL" if LDFM_LEVEL else MODE
+# what THIS worker measures, in the heartbeat: the backend's station sensor record (Dashboard-RealTime)
+# reads it to tell an LDFM that also gives the level from one sitting next to a level worker (both FULL)
+MEASURES = ["level", "flow"] if LDFM_LEVEL else ["flow"]
 
 MODBUS_PORT = os.getenv("MODBUS_USBPORT", "/dev/ttyUSB0")
 MODBUS_SLAVEID = 1
@@ -686,6 +689,7 @@ while True:
             "last_success_age_s": round(time.monotonic() - last_success, 1),
             "sensor": SENSOR,
             "sensor_model": SENSOR_MODEL,
+            "measures": MEASURES,
         }
         if OTHER_SENSOR:
             hb["sensors"] = station_view()[1]
