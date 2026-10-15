@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import random
+import struct
 import threading
 import time
 from hashlib import sha1
@@ -42,6 +43,24 @@ MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 TOPIC = "sensor/{}/dropler".format(DEVICE_ID)
 STATUS_TOPIC = "sensor/{}/status".format(DEVICE_ID)
 HEARTBEAT_TOPIC = "sensor/{}/heartbeat".format(DEVICE_ID)
+
+# --- which flow sensor is fitted (workers v7, 2026-10-15) -------------------------------------------
+# FLOW_SENSOR=JGDP (default): the Doppler probe JGDP-F22D150 - unchanged behaviour.
+# FLOW_SENSOR=LDFM: the JET (Shanghai Jiant) LDFM radar flowmeter - non-contact, a velocity radar and a
+#   level radar in one unit, RS485 Modbus-RTU like the Doppler but with its own register map and number
+#   format (vendor doc "流量计雷达协议说明文件 V3"). It also measures the water level: on a station with
+#   no level worker (MODE=DROPLER) this worker publishes that level on the level topic as well and
+#   reports the station as FULL (level + flow), so the backend and the map treat it as a level station.
+# Every status and heartbeat names the fitted model (`sensor_model`) - the record of which station runs
+# which sensor; for the LDFM the heartbeat also carries what the meter says about itself (`sensor_info`).
+FLOW_SENSOR = (os.getenv("FLOW_SENSOR") or "JGDP").strip().upper()
+SENSOR_MODEL = {"JGDP": "JGDP-F22D150", "LDFM": "LDFM"}.get(FLOW_SENSOR, FLOW_SENSOR)
+LDFM_LEVEL = FLOW_SENSOR == "LDFM" and MODE == "DROPLER" and (os.getenv("LDFM_PUBLISH_LEVEL") or "1") != "0"
+LEVEL_TOPIC = "sensor/{}/radar".format(DEVICE_ID)
+REPORTED_MODE = "FULL" if LDFM_LEVEL else MODE
+# what THIS worker measures, in the heartbeat: the backend's station sensor record (Dashboard-RealTime)
+# reads it to tell an LDFM that also gives the level from one sitting next to a level worker (both FULL)
+MEASURES = ["level", "flow"] if LDFM_LEVEL else ["flow"]
 
 MODBUS_PORT = os.getenv("MODBUS_USBPORT", "/dev/ttyUSB0")
 MODBUS_SLAVEID = 1
@@ -204,10 +223,11 @@ def _status_payload(status):
         "id": STATION_ID,
         "device_id": DEVICE_ID,
         "station_name": STATION_NAME,
-        "mode": MODE,
+        "mode": REPORTED_MODE,
         "status": status,
         "lastseen": str(datetime.datetime.now(datetime.timezone.utc)),
         "sensor": SENSOR,
+        "sensor_model": SENSOR_MODEL,
     }
 
 
@@ -250,7 +270,8 @@ def on_disconnect(client, userdata, reason_code, properties=None):
 mqtt_client = mqtt.Client(client_id=CLIENT_ID, clean_session=True)
 mqtt_client.will_set(
     topic=OWN_STATUS_TOPIC,  # FULL: the flow meter's own topic - its death is an error for the station, not offline
-    payload=json.dumps({"id": STATION_ID, "device_id": DEVICE_ID, "mode": MODE, "status": "offline", "sensor": SENSOR}),
+    payload=json.dumps({"id": STATION_ID, "device_id": DEVICE_ID, "mode": REPORTED_MODE, "status": "offline",
+                        "sensor": SENSOR, "sensor_model": SENSOR_MODEL}),
     qos=1,
     retain=True,
 )
@@ -373,6 +394,248 @@ def on_read_failure(err):
 
 
 # ==========================================================================
+# LDFM radar flowmeter driver (FLOW_SENSOR=LDFM, workers v7)
+# ==========================================================================
+# Registers from the vendor protocol V3 (decimal-addressed there, hex here). Integers are big-endian;
+# 4-byte floats come back with their bytes reversed: the doc's reply E7 FB 49 3F is the float 0x3F49FBE7.
+LDFM_EMPTY_HEIGHT = 0x0001     # mm, radar to water surface
+LDFM_WATER_LEVEL = 0x0003      # mm, install height - empty height (needs LDFM_INSTALL_HEIGHT)
+LDFM_RANGE_SIGNAL = 0x0004     # dB, level radar signal (> 30 good)
+LDFM_INSTALL_HEIGHT = 0x0005   # cm, radar to the pipe/channel bed; factory 10000 (= 100 m)
+LDFM_PITCH = 0x000A            # 0.1 deg, int16
+LDFM_DIRECTION = 0x000C        # 1 = water coming towards the radar, 2 = going away
+LDFM_FLOW_BLOCK = 0x000F       # 10 regs: surface velocity, flow m3/s, cumulative +, cumulative -, wet area
+LDFM_SILT = 0x0019             # mm, float; factory 100.0
+LDFM_SECTION_VELOCITY = 0x001D  # m/s, cross-section mean velocity
+LDFM_DIRECTION_FILTER = 0x005E  # direction DROPPED: 0 none, 1 towards the radar, 2 away (factory)
+LDFM_SECTION = 0x0061          # 4 regs: shape (0 rectangle, 1 trapezoid, 2 circle), param 1/2/3 in cm
+LDFM_CUMULATIVE_ENABLE = 0x0065  # 2 regs: forward / reverse totaliser on (turning one off clears it)
+LDFM_VERSION = 0xEA60          # 4 regs: model code, hw/sw change batch, hw upgrade, sw upgrade
+LDFM_FACTORY_HEIGHT_CM = 10000
+LDFM_CONFIG_CHECK_S = float(os.getenv("LDFM_CONFIG_CHECK_S") or "3600")
+
+_SHAPES = {"rectangle": 0, "rect": 0, "trapezoid": 1, "trap": 1, "circle": 2, "round": 2, "irregular": 3}
+_FILTERS = {"none": 0, "towards": 1, "away": 2}
+
+
+def ldfm_float(regs):
+    """Two registers -> float, for the meter's byte-reversed 4-byte floats."""
+    return struct.unpack("<f", struct.pack(">HH", regs[0] & 0xFFFF, regs[1] & 0xFFFF))[0]
+
+
+def ldfm_float_regs(value):
+    """float -> the two registers the meter expects (inverse of ldfm_float)."""
+    b = struct.pack("<f", float(value))
+    return [(b[0] << 8) | b[1], (b[2] << 8) | b[3]]
+
+
+def ldfm_int16(reg):
+    return reg - 0x10000 if reg & 0x8000 else reg
+
+
+def read_regs(address, count):
+    resp = client.read_holding_registers(address, count=count, device_id=MODBUS_SLAVEID)
+    if resp is None or resp.isError():
+        raise IOError(f"modbus error reg{address:#06x}: {resp}")
+    regs = list(resp.registers)
+    if len(regs) < count:
+        raise IOError(f"short read reg{address:#06x}: {len(regs)} of {count}")
+    return regs
+
+
+def _env_number(name):
+    v = (os.getenv(name) or "").strip()
+    return float(v) if v else None
+
+
+def _env_choice(name, table):
+    v = (os.getenv(name) or "").strip().lower()
+    if not v:
+        return None
+    if v.isdigit():
+        return int(v)
+    if v not in table:
+        raise ValueError(f"{name}={v!r}: use one of {', '.join(sorted(table))}")
+    return table[v]
+
+
+def ldfm_desired():
+    """The meter settings this board's .env asks for: {name: (register, kind, value)}. Unset = leave the
+    meter as it is (set by the vendor's Bluetooth app, say)."""
+    want = {}
+    h = _env_number("LDFM_INSTALL_HEIGHT_CM")
+    if h is not None:
+        want["install_height_cm"] = (LDFM_INSTALL_HEIGHT, "u16", int(round(h)))
+    shape = _env_choice("LDFM_SECTION_SHAPE", _SHAPES)
+    if shape is not None:
+        want["section_shape"] = (LDFM_SECTION, "u16", shape)
+    for i in (1, 2, 3):
+        p = _env_number(f"LDFM_SECTION_P{i}_CM")
+        if p is not None:
+            want[f"section_p{i}_cm"] = (LDFM_SECTION + i, "u16", int(round(p)))
+    f = _env_choice("LDFM_DIRECTION_FILTER", _FILTERS)
+    if f is not None:
+        want["direction_filter"] = (LDFM_DIRECTION_FILTER, "u16", f)
+    silt = _env_number("LDFM_SILT_MM")
+    if silt is not None:
+        want["silt_mm"] = (LDFM_SILT, "f32", silt)
+    return want
+
+
+def ldfm_read_config():
+    """What the meter is set to, plus its own identity (version registers)."""
+    shape, p1, p2, p3 = read_regs(LDFM_SECTION, 4)
+    fwd, rev = read_regs(LDFM_CUMULATIVE_ENABLE, 2)
+    version = read_regs(LDFM_VERSION, 4)
+    return {
+        "install_height_cm": read_regs(LDFM_INSTALL_HEIGHT, 1)[0],
+        "section_shape": shape, "section_p1_cm": p1, "section_p2_cm": p2, "section_p3_cm": p3,
+        "direction_filter": read_regs(LDFM_DIRECTION_FILTER, 1)[0],
+        "silt_mm": round(ldfm_float(read_regs(LDFM_SILT, 2)), 1),
+        "cumulative_forward": fwd, "cumulative_reverse": rev,
+        "pitch_deg": ldfm_int16(read_regs(LDFM_PITCH, 1)[0]) / 10.0,
+        "model_code": version[0], "version": version[1:],
+    }
+
+
+def ldfm_warnings(cfg, desired):
+    """Factory values that make the meter report nothing useful - each one zeroes or skews the flow."""
+    w = []
+    if cfg["install_height_cm"] == LDFM_FACTORY_HEIGHT_CM:
+        w.append("install height is the factory 100 m: set LDFM_INSTALL_HEIGHT_CM (radar to pipe bed) - no level until then")
+    if cfg["section_p1_cm"] <= 1:
+        w.append("cross-section not set (factory 1 cm): set LDFM_SECTION_SHAPE + LDFM_SECTION_P1_CM - flow stays ~0")
+    if cfg["direction_filter"] == 2 and "direction_filter" not in desired:
+        w.append("factory direction filter drops water moving away from the radar: face it upstream or set LDFM_DIRECTION_FILTER=none")
+    if abs(cfg["silt_mm"] - 100.0) < 0.05 and "silt_mm" not in desired:
+        w.append("silt thickness is the factory 100 mm: set LDFM_SILT_MM (0 = clean pipe) - flow reads low")
+    return w
+
+
+def ldfm_apply(desired, cfg):
+    """Write each .env setting the meter does not already have; return {name: (old, new)} written."""
+    written = {}
+    for name, (reg, kind, value) in desired.items():
+        current = cfg.get(name)
+        if kind == "f32":
+            if current is not None and abs(current - value) < 0.05:
+                continue
+            client.write_registers(reg, ldfm_float_regs(value), device_id=MODBUS_SLAVEID)
+        else:
+            if current == value:
+                continue
+            client.write_register(reg, value, device_id=MODBUS_SLAVEID)
+        written[name] = (current, value)
+    return written
+
+
+ldfm_info = {}
+_ldfm_next_check = 0.0
+
+
+def ldfm_check_config(now=None):
+    """Read the meter's settings, apply the .env ones, read back, keep the result for the heartbeat.
+    Runs at the first good read and then every LDFM_CONFIG_CHECK_S; never faults the sensor."""
+    global ldfm_info, _ldfm_next_check
+    now = time.monotonic() if now is None else now
+    _ldfm_next_check = now + LDFM_CONFIG_CHECK_S
+    try:
+        desired = ldfm_desired()
+        cfg = ldfm_read_config()
+        written = ldfm_apply(desired, cfg)
+        if written:
+            cfg = ldfm_read_config()
+            print(f"[dropler] LDFM settings written: {written}", flush=True)
+        warnings = ldfm_warnings(cfg, desired)
+        ldfm_info = {"model": "LDFM", **cfg, "warnings": warnings}
+        file_service.save_log({"event": "ldfm_config", **ldfm_info, "written": {k: list(v) for k, v in written.items()}}, TOPIC)
+        for msg in warnings:
+            print(f"[dropler] LDFM WARNING: {msg}", flush=True)
+    except Exception as e:  # a settings problem must not stop the measurements
+        ldfm_info = {**ldfm_info, "model": "LDFM", "config_error": repr(e)}
+        print(f"[dropler] LDFM settings check failed: {e!r}", flush=True)
+
+
+def read_ldfm():
+    """One LDFM sample as a dict. Raises on failure (same breaker as the Doppler)."""
+    global _failures, _circuit_open
+    now = time.monotonic()
+    if _circuit_open and now < _next_probe:
+        raise TimeoutError("circuit-open: skipping probe")
+    ensure_connected()
+    empty_mm = read_regs(LDFM_EMPTY_HEIGHT, 1)[0]
+    level_mm, signal = read_regs(LDFM_WATER_LEVEL, 2)
+    direction = read_regs(LDFM_DIRECTION, 1)[0]
+    block = read_regs(LDFM_FLOW_BLOCK, 10)
+    section_v = ldfm_float(read_regs(LDFM_SECTION_VELOCITY, 2))
+    _failures = 0
+    _circuit_open = False
+    if now >= _ldfm_next_check:
+        ldfm_check_config(now)
+    height_cm = ldfm_info.get("install_height_cm")
+    # level only when the install height is really set; a reading above it is not water
+    level_ok = height_cm not in (None, LDFM_FACTORY_HEIGHT_CM) and level_mm <= height_cm * 10
+    return {
+        "level_m": level_mm / 1000.0 if level_ok else None,
+        "empty_height_m": empty_mm / 1000.0,
+        "signal_db": signal,
+        "direction": {1: "towards", 2: "away"}.get(direction),
+        "surface_velocity": ldfm_float(block[0:2]),
+        "flowrate": ldfm_float(block[2:4]),
+        "cumulative": ldfm_float(block[4:6]),
+        "cumulative_reverse": ldfm_float(block[6:8]),
+        "wet_area": ldfm_float(block[8:10]),
+        "velocity": section_v,
+    }
+
+
+def ldfm_payloads(sample, date_time):
+    """(flow payload, level payload or None) in the shapes the backend already reads: the flow one like
+    the Doppler's (temperature None - the meter has none), the level one like radar.py's."""
+    flow = {
+        "station_id": STATION_ID,
+        "device_id": DEVICE_ID,
+        "station_name": STATION_NAME,
+        "date_time": date_time,
+        "liquid_level": None if sample["level_m"] is None else round(sample["level_m"], 4),
+        "velocity": round(sample["velocity"], 6),
+        "flowrate": round(sample["flowrate"], 6),
+        "cumulative_flow": round(sample["cumulative"], 2),
+        "temperature": None,
+        "surface_velocity": round(sample["surface_velocity"], 6),
+        "direction": sample["direction"],
+        "wet_area": round(sample["wet_area"], 4),
+        "cumulative_reverse": round(sample["cumulative_reverse"], 2),
+        "signal_db": sample["signal_db"],
+        "sensor_model": SENSOR_MODEL,
+    }
+    level = None
+    if LDFM_LEVEL and sample["level_m"] is not None:
+        level = {
+            "station_id": STATION_ID,
+            "device_id": DEVICE_ID,
+            "station_name": STATION_NAME,
+            "date_time": date_time,
+            "level": float("{0:.2f}".format(sample["level_m"])),
+            "current_ma": None,
+            "data_source": "ldfm",
+            "fault_code": None,
+        }
+    return flow, level
+
+
+def publish_ldfm_sample():
+    """Read the LDFM once and publish: flow on this worker's topic, the level on the level topic."""
+    flow_data, level_data = ldfm_payloads(read_ldfm(), str(datetime.datetime.now(tz=UTC_TZ)))
+    mqtt_client.publish(TOPIC, json.dumps(flow_data), qos=1)
+    redis_client.publish(REDIS_CHANNEL, json.dumps(flow_data))
+    file_service.save_log(flow_data, TOPIC)
+    if level_data is not None:
+        mqtt_client.publish(LEVEL_TOPIC, json.dumps(level_data), qos=1)
+        file_service.save_log(level_data, LEVEL_TOPIC)
+
+
+# ==========================================================================
 # Main loop
 # ==========================================================================
 wd_ready()
@@ -380,22 +643,25 @@ last_success = time.monotonic()
 
 while True:
     try:
-        liquid_level, velocity, flowrate, temp, cumulative = read_doppler()
-        dateTime = str(datetime.datetime.now(tz=UTC_TZ))
-        data = {
-            "station_id": STATION_ID,
-            "device_id": DEVICE_ID,
-            "station_name": STATION_NAME,
-            "date_time": dateTime,
-            "liquid_level": float(f"{liquid_level:.4f}"),
-            "velocity": float(f"{velocity:.6f}"),
-            "flowrate": float(f"{flowrate:.6f}"),
-            "cumulative_flow": float(f"{cumulative:.2f}"),
-            "temperature": float(f"{temp:.3f}"),
-        }
-        mqtt_client.publish(TOPIC, json.dumps(data), qos=1)
-        redis_client.publish(REDIS_CHANNEL, json.dumps(data))
-        file_service.save_log(data, TOPIC)
+        if FLOW_SENSOR == "LDFM":
+            publish_ldfm_sample()
+        else:
+            liquid_level, velocity, flowrate, temp, cumulative = read_doppler()
+            dateTime = str(datetime.datetime.now(tz=UTC_TZ))
+            data = {
+                "station_id": STATION_ID,
+                "device_id": DEVICE_ID,
+                "station_name": STATION_NAME,
+                "date_time": dateTime,
+                "liquid_level": float(f"{liquid_level:.4f}"),
+                "velocity": float(f"{velocity:.6f}"),
+                "flowrate": float(f"{flowrate:.6f}"),
+                "cumulative_flow": float(f"{cumulative:.2f}"),
+                "temperature": float(f"{temp:.3f}"),
+            }
+            mqtt_client.publish(TOPIC, json.dumps(data), qos=1)
+            redis_client.publish(REDIS_CHANNEL, json.dumps(data))
+            file_service.save_log(data, TOPIC)
         last_success = time.monotonic()
         enter("ONLINE")
     except Exception as error:
@@ -412,7 +678,7 @@ while True:
             "id": STATION_ID,
             "device_id": DEVICE_ID,
             "station_name": STATION_NAME,
-            "mode": MODE,
+            "mode": REPORTED_MODE,
             # FULL: the STATION status (the same one the level worker reports), not this sensor's
             "status": (station_view()[0] or "degraded") if OTHER_SENSOR
                       else ("online" if state == "ONLINE" else ("error" if state == "FAULT" else "degraded")),
@@ -422,9 +688,13 @@ while True:
             "reconnect_count": reconnect_count,
             "last_success_age_s": round(time.monotonic() - last_success, 1),
             "sensor": SENSOR,
+            "sensor_model": SENSOR_MODEL,
+            "measures": MEASURES,
         }
         if OTHER_SENSOR:
             hb["sensors"] = station_view()[1]
+        if FLOW_SENSOR == "LDFM" and ldfm_info:
+            hb["sensor_info"] = ldfm_info
         mqtt_client.publish(HEARTBEAT_TOPIC, json.dumps(hb), qos=1, retain=False)
         last_heartbeat = time.time()
 
