@@ -1,8 +1,9 @@
 {
-  "build": "6+g19a7f80",
+  "build": "7+gc9961e7",
   "canary": [
-    "PAT-4633CCAA03"
+    "PAT-013BAE7FCC",
+    "PAT-370D19A88D"
   ],
-  "percent": 100,
-  "version": 6
+  "percent": 0,
+  "version": 7
 }

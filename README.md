@@ -174,6 +174,50 @@ pat-smart mode FULL
 
 ---
 
+## Flow sensor model (`FLOW_SENSOR`)
+
+The Dropler worker drives one of two flow sensors, chosen in `.env` (workers v7):
+
+| `FLOW_SENSOR` | Sensor | Notes |
+|---|---|---|
+| `JGDP` (default) | JGDP-F22D150 Doppler probe (in the water) | unchanged behaviour |
+| `LDFM` | JET LDFM radar flowmeter (above the water) | velocity **and** water level from one unit |
+
+Both are RS485 Modbus-RTU, 9600 8N1, address 1. On a CM5 (IRIV) board set the port explicitly:
+`MODBUS_USBPORT=/dev/ttyACM0` (or its `/dev/serial/by-id/...` path) - the worker does not auto-detect it.
+
+With `FLOW_SENSOR=LDFM` on a `MODE=DROPLER` station the worker also publishes the meter's water level
+(as the level worker would) and reports the station as level + flow (`mode: FULL`); set
+`LDFM_PUBLISH_LEVEL=0` to turn that off. Every status/heartbeat names the sensor (`sensor_model`), and the
+LDFM heartbeat carries `sensor_info` (the meter's model code, version and settings).
+
+LDFM settings, written to the meter at start-up only when set and different, then read back
+(leave a key out to keep what the vendor's Bluetooth app set):
+
+| Key | Meaning | Factory value (why it matters) |
+|---|---|---|
+| `LDFM_INSTALL_HEIGHT_CM` | radar to the pipe/channel bed, cm | 10000 = 100 m: **no water level** until set |
+| `LDFM_SECTION_SHAPE` | `circle`, `rectangle`, `trapezoid` | rectangle |
+| `LDFM_SECTION_P1_CM` | circle: diameter; rectangle: width; trapezoid: top width | 1 cm: **flow stays ~0** |
+| `LDFM_SECTION_P2_CM` / `LDFM_SECTION_P3_CM` | trapezoid bottom width / height (rectangle height in P3) | 1 cm |
+| `LDFM_DIRECTION_FILTER` | direction to DROP: `none`, `towards`, `away` | `away`: **flow reads 0** if the water runs away from the radar |
+| `LDFM_SILT_MM` | silt on the bed, mm | 100 mm: flow reads low |
+
+Any factory value still in place is logged as `LDFM WARNING` and listed in the heartbeat.
+
+```bash
+# example: radar 2.20 m above the bed of a 1.20 m round pipe, facing upstream, clean pipe
+FLOW_SENSOR=LDFM
+MODBUS_USBPORT=/dev/ttyACM0
+LDFM_INSTALL_HEIGHT_CM=220
+LDFM_SECTION_SHAPE=circle
+LDFM_SECTION_P1_CM=120
+LDFM_DIRECTION_FILTER=none
+LDFM_SILT_MM=0
+```
+
+---
+
 # Apply Mode Changes
 
 After changing mode:
