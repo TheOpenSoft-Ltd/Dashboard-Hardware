@@ -23,10 +23,16 @@ dependencies = [
     "pyserial>=3.5",
     "python-dotenv>=1.2.1",
     "rich-click>=1.9.7",
-    "textual-dev>=1.8.0",
     "textual[syntax]>=8.0.0",
     "typer>=0.21.1",
     "redis>=5.2.2",
+]
+
+[dependency-groups]
+# Developer tools only (`uv sync` installs this group by default; `pipx install` / `pip install` of the package do not).
+# textual-dev pulls textual-serve + aiohttp, which no worker imports - keeping it out of the runtime set keeps them off the boards.
+dev = [
+    "textual-dev>=1.8.0",
 ]
 
 [project.scripts]
