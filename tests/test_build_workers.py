@@ -116,6 +116,26 @@ class Selftest(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertIn("tls_set", out)
 
+    def test_fails_when_a_worker_goes_back_to_a_blocking_connect(self):
+        # prod 2026-11-16: a blocking connect() raised TimeoutError while the broker was down and
+        # killed every radar/dropler; systemd restarted them every 5 s for 7 hours.
+        for worker in ("radar.py", "dropler.py"):
+            with self.subTest(worker=worker):
+                p = os.path.join(self.staging, worker)
+                with open(p, encoding="utf-8") as f:
+                    original = f.read()
+                call = "mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=60)"
+                self.assertIn(call, original)
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(original.replace(call, "mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)", 1))
+                try:
+                    rc, out = bw.run_selftest(self.staging)
+                    self.assertNotEqual(rc, 0, out)
+                    self.assertIn("blocking connect()", out)
+                finally:
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(original)
+
     def test_fails_on_bad_identity(self):
         with open(os.path.join(self.staging, "WORKERS_VERSION"), "w") as f:
             f.write("one\n")
