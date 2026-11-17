@@ -6,12 +6,14 @@ floats sent with the bytes reversed. The worker is executed up to its main loop 
 libraries stubbed (as in test_station_status.py), and its serial client is swapped for a fake meter
 whose registers come from the vendor's protocol document (V3), including its own example replies.
 """
+import glob
 import json
 import os
 import struct
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "ota"))
@@ -233,6 +235,57 @@ class OtherStations(unittest.TestCase):
         ns["client"] = meter()
         self.assertFalse(ns["LDFM_LEVEL"])
         self.assertIsNone(ns["ldfm_payloads"](ns["read_ldfm"](), "t")[1])
+
+
+class PortResolution(unittest.TestCase):
+    """_resolve_modbus_port(): heal the FTDI ttyUSB0->ttyUSB1 renumber (PIT005 2026-11-14)
+    without breaking stations whose configured port is correct."""
+
+    def _resolved(self, configured, usb=None, acm=None):
+        real_glob = glob.glob
+
+        def fake_glob(pattern):
+            if pattern == "/dev/ttyUSB*":
+                return list(usb or [])
+            if pattern == "/dev/ttyACM*":
+                return list(acm or [])
+            return real_glob(pattern)
+
+        with mock.patch("glob.glob", side_effect=fake_glob):
+            ns, _, _ = load_dropler("DROPLER", extra={"MODBUS_USBPORT": configured})
+        return ns["MODBUS_PORT"]
+
+    def test_configured_port_wins_when_present(self):
+        fd, path = tempfile.mkstemp(prefix="ttyFAKE-")
+        os.close(fd)
+        try:
+            # a different adapter is also present, but the configured one exists -> unchanged
+            self.assertEqual(self._resolved(path, usb=["/dev/ttyUSB9"]), path)
+        finally:
+            os.unlink(path)
+
+    def test_autodetects_when_configured_absent(self):
+        # PIT005: .env says ttyUSB0 (gone), the FTDI re-enumerated to ttyUSB1
+        self.assertEqual(self._resolved("/dev/ttyUSB0", usb=["/dev/ttyUSB1"]), "/dev/ttyUSB1")
+
+    def test_prefers_ttyUSB_over_ttyACM(self):
+        self.assertEqual(
+            self._resolved("/dev/nope", usb=["/dev/ttyUSB3"], acm=["/dev/ttyACM0"]),
+            "/dev/ttyUSB3",
+        )
+
+    def test_uses_ttyACM_when_no_ttyUSB(self):
+        self.assertEqual(self._resolved("/dev/nope", usb=[], acm=["/dev/ttyACM0"]), "/dev/ttyACM0")
+
+    def test_lowest_number_chosen(self):
+        self.assertEqual(
+            self._resolved("/dev/ttyUSB0", usb=["/dev/ttyUSB2", "/dev/ttyUSB1"]),
+            "/dev/ttyUSB1",
+        )
+
+    def test_falls_back_to_configured_when_nothing_present(self):
+        # a genuinely-absent adapter must still fail meaningfully on the configured path
+        self.assertEqual(self._resolved("/dev/ttyUSB0", usb=[], acm=[]), "/dev/ttyUSB0")
 
 
 if __name__ == "__main__":
