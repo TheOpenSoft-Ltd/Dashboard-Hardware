@@ -1,4 +1,5 @@
 import datetime
+import glob
 import json
 import os
 import random
@@ -62,7 +63,36 @@ REPORTED_MODE = "FULL" if LDFM_LEVEL else MODE
 # reads it to tell an LDFM that also gives the level from one sitting next to a level worker (both FULL)
 MEASURES = ["level", "flow"] if LDFM_LEVEL else ["flow"]
 
-MODBUS_PORT = os.getenv("MODBUS_USBPORT", "/dev/ttyUSB0")
+def _resolve_modbus_port() -> str:
+    """Serial port for the Modbus RTU flow sensor, board- and renumber-agnostic.
+
+    An explicit MODBUS_USBPORT wins when its device node exists. Otherwise
+    auto-detect: USB-serial dongles (/dev/ttyUSB*, FTDI on the RPi/CM5) or the
+    CM5/IRIV on-board ACM ports (/dev/ttyACM*). This heals the case where the
+    FTDI re-enumerates from ttyUSB0 to ttyUSB1 across a reboot/replug and the
+    hardcoded port goes stale (e.g. PIT005 2026-11-14: adapter on ttyUSB1 while
+    the .env said ttyUSB0, so dropler faulted "could not open /dev/ttyUSB0"
+    forever even though the meter was fine). Falls back to the configured/legacy
+    path so a genuinely-absent adapter still fails with a meaningful error.
+    """
+    configured = os.getenv("MODBUS_USBPORT")
+    if configured and os.path.exists(configured):
+        return configured
+    for pattern in ("/dev/ttyUSB*", "/dev/ttyACM*"):
+        found = sorted(glob.glob(pattern))
+        if found:
+            if configured:
+                print(
+                    "[dropler] MODBUS_USBPORT %s absent; auto-detected %s"
+                    % (configured, found[0]),
+                    flush=True,
+                )
+            return found[0]
+    return configured or "/dev/ttyUSB0"
+
+
+MODBUS_PORT = _resolve_modbus_port()
+print("[dropler] MODBUS port = %s" % MODBUS_PORT, flush=True)
 MODBUS_SLAVEID = 1
 MODBUS_BAUDRATE = int(os.getenv("MODBUS_BAUDRATE") or "9600")
 
