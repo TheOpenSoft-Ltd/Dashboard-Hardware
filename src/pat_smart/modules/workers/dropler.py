@@ -302,7 +302,12 @@ if all(_mqtt_certs) and all(os.path.exists(p) for p in _mqtt_certs):
     print("[MQTT] TLS enabled (client certs present)", flush=True)
 else:
     print("[MQTT] plaintext (no client certs present)", flush=True)
-mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
+# connect_async, not connect: a broker that is unreachable at start raised TimeoutError here and
+# killed the worker - prod cold boot 2026-11-16, broker down 08:54-16:11: every radar/dropler on the
+# fleet died and was restarted by systemd every 5 s (restart counter ~4,650 on PIT005/PIT020).
+# loop_start() retries the first connection too, every reconnect delay, and on_connect re-asserts
+# the current status. Same fix as stream_supervisor.py; ota/selftest.py rejects a blocking connect().
+mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=60)
 mqtt_client.loop_start()
 
 

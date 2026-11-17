@@ -259,10 +259,12 @@ def check_mqtt_worker(fail, name, tmp):
         c = mq[0]
         if not c.called("will_set"):
             fail(label, "last-will not set")
-        if not c.called("connect"):
-            fail(label, "mqtt connect() never called")
-        elif c.called("connect")[0][1][:2] != ("127.0.0.1", 1883):
-            fail(label, "mqtt connect() with %r, expected (MQTT_HOST, MQTT_PORT)" % (c.called("connect")[0][1],))
+        if c.called("connect"):
+            fail(label, "blocking connect(): a broker unreachable at start raises and kills the worker - use connect_async")
+        elif not c.called("connect_async"):
+            fail(label, "mqtt connect_async() never called")
+        elif c.called("connect_async")[0][1][:2] != ("127.0.0.1", 1883):
+            fail(label, "mqtt connect_async() with %r, expected (MQTT_HOST, MQTT_PORT)" % (c.called("connect_async")[0][1],))
         if not c.called("loop_start"):
             fail(label, "mqtt loop_start() never called")
         if secure and not c.called("tls_set"):
